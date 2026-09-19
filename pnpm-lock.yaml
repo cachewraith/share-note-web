@@ -177,6 +177,9 @@ catalogs:
     unplugin-swc:
       specifier: 1.6.0
       version: 1.6.0
+    vfile:
+      specifier: 6.0.3
+      version: 6.0.3
     vitest:
       specifier: 5.0.1
       version: 5.0.1
@@ -406,6 +409,9 @@ importers:
       unist-util-visit:
         specifier: 'catalog:'
         version: 5.1.0
+      vfile:
+        specifier: 'catalog:'
+        version: 6.0.3
       zod:
         specifier: 'catalog:'
         version: 4.6.5

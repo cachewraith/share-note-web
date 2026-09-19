@@ -26,6 +26,7 @@
     "shiki": "catalog:",
     "unified": "catalog:",
     "unist-util-visit": "catalog:",
+    "vfile": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

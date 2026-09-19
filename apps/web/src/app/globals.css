@@ -1,19 +1,385 @@
+/*
+ * One stylesheet, no framework. Colours are custom properties on :root and are
+ * redefined for dark mode, so a theme is a matter of overriding this block.
+ */
+
 :root {
   color-scheme: light dark;
+
+  --page: #ffffff;
+  --surface: #f6f7f9;
+  --border: #d8dce2;
+  --text: #1a1d21;
+  --text-muted: #5b6672;
+  --link: #0b5fd0;
+  --code-bg: #f6f8fa;
+
+  --callout-note: #0b5fd0;
+  --callout-tip: #0a8f5f;
+  --callout-warning: #a06000;
+  --callout-danger: #c02626;
+  --callout-example: #7b40c9;
+  --callout-quote: #5b6672;
+
+  --measure: 44rem;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #14171a;
+    --surface: #1c2024;
+    --border: #2e353d;
+    --text: #e6e9ec;
+    --text-muted: #9aa5b1;
+    --link: #78b0ff;
+    --code-bg: #1c2024;
+
+    --callout-note: #78b0ff;
+    --callout-tip: #4fd0a0;
+    --callout-warning: #e0a638;
+    --callout-danger: #ff8080;
+    --callout-example: #c4a0ff;
+    --callout-quote: #9aa5b1;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--page);
+  color: var(--text);
   font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.15em;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.share,
+.message-page {
+  margin: 0 auto;
+  max-width: var(--measure);
+  padding: 3rem 1.25rem 4rem;
+}
+
+.share-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.share-meta {
+  margin: 0 0 2.5rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.share-footer {
+  margin-top: 4rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.message-page h1 {
+  font-size: 1.75rem;
+}
+
+.message-page button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------ note body */
+
+.share-body > *:first-child {
+  margin-top: 0;
+}
+
+.share-body h1,
+.share-body h2,
+.share-body h3,
+.share-body h4,
+.share-body h5,
+.share-body h6 {
+  margin: 2.25rem 0 0.75rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.share-body h1 {
+  font-size: 1.75rem;
+}
+.share-body h2 {
+  font-size: 1.4rem;
+}
+.share-body h3 {
+  font-size: 1.175rem;
+}
+.share-body h4,
+.share-body h5,
+.share-body h6 {
+  font-size: 1rem;
+}
+
+.share-body p,
+.share-body ul,
+.share-body ol {
+  margin: 0 0 1.1rem;
+}
+
+.share-body li + li {
+  margin-top: 0.3rem;
+}
+
+.share-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+.share-body hr {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.share-body blockquote {
+  margin: 0 0 1.1rem;
+  padding: 0.1rem 1rem;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+
+.share-body :not(pre) > code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-size: 0.875em;
+}
+
+/* --------------------------------------------------------------- tables */
+
+.share-body table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  margin: 0 0 1.5rem;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.share-body th,
+.share-body td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.share-body th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.align-left {
+  text-align: left;
+}
+.align-center {
+  text-align: center;
+}
+.align-right {
+  text-align: right;
+}
+
+/* ----------------------------------------------------------- task lists */
+
+.share-body .contains-task-list {
+  padding-left: 1.25rem;
+  list-style: none;
+}
+
+.share-body .task-list-item {
+  position: relative;
+}
+
+.share-body .task-list-item input {
+  margin-right: 0.5rem;
+  margin-left: -1.35rem;
+  accent-color: var(--link);
+}
+
+/* ------------------------------------------------------------- callouts */
+
+.callout {
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--callout-colour, var(--callout-note));
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.callout > *:last-child {
+  margin-bottom: 0;
+}
+
+.callout-title {
+  margin-bottom: 0.35rem;
+  color: var(--callout-colour, var(--callout-note));
+  font-weight: 600;
+}
+
+.callout-note,
+.callout-info,
+.callout-todo,
+.callout-abstract,
+.callout-summary,
+.callout-tldr {
+  --callout-colour: var(--callout-note);
+}
+
+.callout-tip,
+.callout-hint,
+.callout-important,
+.callout-success,
+.callout-check,
+.callout-done {
+  --callout-colour: var(--callout-tip);
+}
+
+.callout-warning,
+.callout-caution,
+.callout-attention,
+.callout-question,
+.callout-help,
+.callout-faq {
+  --callout-colour: var(--callout-warning);
+}
+
+.callout-danger,
+.callout-error,
+.callout-bug,
+.callout-failure,
+.callout-fail,
+.callout-missing {
+  --callout-colour: var(--callout-danger);
+}
+
+.callout-example {
+  --callout-colour: var(--callout-example);
+}
+
+.callout-quote,
+.callout-cite {
+  --callout-colour: var(--callout-quote);
+}
+
+/* ---------------------------------------------------------- code blocks */
+
+.code-block {
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.code-block-language {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.code-copy-button {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-copy-button:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
   line-height: 1.6;
 }
 
-.landing {
-  margin: 0 auto;
-  max-width: 40rem;
-  padding: 4rem 1.5rem;
+.code-block code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/*
+ * Shiki is configured with two themes and `defaultColor: false`, so each token
+ * carries both colours as custom properties and the page picks one.
+ */
+.shiki,
+.shiki span {
+  background-color: var(--shiki-light-bg);
+  color: var(--shiki-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .shiki,
+  .shiki span {
+    background-color: var(--shiki-dark-bg);
+    color: var(--shiki-dark);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

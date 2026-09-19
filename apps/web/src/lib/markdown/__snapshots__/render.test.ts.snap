@@ -1,0 +1,52 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`code blocks > highlights a fenced block and wraps it with a copy button 1`] = `"<figure class="code-block"><figcaption class="code-block-header"><span class="code-block-language">ts</span><button type="button" class="code-copy-button" data-copy="true">Copy</button></figcaption><pre class="shiki shiki-themes github-light github-dark" style="--shiki-light:#24292e;--shiki-dark:#e1e4e8;--shiki-light-bg:#fff;--shiki-dark-bg:#24292e" tabindex="0"><code><span class="line"><span style="--shiki-light:#D73A49;--shiki-dark:#F97583">const</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF"> answer</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583">:</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF"> number</span><span style="--shiki-light:#D73A49;--shiki-dark:#F97583"> =</span><span style="--shiki-light:#005CC5;--shiki-dark:#79B8FF"> 42</span><span style="--shiki-light:#24292E;--shiki-dark:#E1E4E8">;</span></span></code></pre></figure>"`;
+
+exports[`code blocks > leaves an unfenced indented block highlightable 1`] = `
+"<figure class="code-block"><figcaption class="code-block-header"><span class="code-block-language">text</span><button type="button" class="code-copy-button" data-copy="true">Copy</button></figcaption><pre><code>plain indented
+</code></pre></figure>"
+`;
+
+exports[`markdown > renders GFM tables with alignment as classes, never inline styles 1`] = `
+"<table>
+<thead>
+<tr>
+<th class="align-left">a</th>
+<th class="align-right">b</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="align-left">1</td>
+<td class="align-right">2</td>
+</tr>
+</tbody>
+</table>"
+`;
+
+exports[`markdown > renders headings, emphasis and lists 1`] = `
+"<h1>Title</h1>
+<p>Some <strong>bold</strong> and <em>italic</em>.</p>
+<ul>
+<li>one</li>
+<li>two</li>
+</ul>"
+`;
+
+exports[`markdown > renders strikethrough and footnote-free GFM extras 1`] = `"<p><del>gone</del> and <a href="https://example.com" target="_blank" rel="nofollow noopener noreferrer">https://example.com</a></p>"`;
+
+exports[`markdown > renders task lists 1`] = `
+"<ul class="contains-task-list">
+<li class="task-list-item"><input type="checkbox" checked disabled> done</li>
+<li class="task-list-item"><input type="checkbox" disabled> todo</li>
+</ul>"
+`;
+
+exports[`obsidian syntax > renders a callout with its title 1`] = `
+"<div class="callout callout-note">
+<div class="callout-title">Remember</div>
+<p>This is the body.</p>
+</div>"
+`;
+
+exports[`obsidian syntax > resolves an embed to the attachment endpoint 1`] = `"<p><img src="https://api.example.com/v1/public/assets/bbbbbbbbbbbbbbbbbbbbb" alt="diagram.png"></p>"`;
