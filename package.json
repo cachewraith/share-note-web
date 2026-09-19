@@ -1,0 +1,49 @@
+{
+  "name": "share-note-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Share an Obsidian note as a public link.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "verify": "turbo run lint typecheck test build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "sync-plugin-manifest": "node scripts/sync-plugin-manifest.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm sync-plugin-manifest && pnpm install --lockfile-only",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "@commitlint/cli": "21.2.3",
+    "@commitlint/config-conventional": "21.2.3",
+    "@eslint/js": "9.39.5",
+    "@share-note/config": "workspace:*",
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "globals": "catalog:",
+    "husky": "9.1.7",
+    "lint-staged": "17.5.1",
+    "prettier": "catalog:",
+    "turbo": "2.11.2",
+    "typescript": "catalog:"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}": [
+      "prettier --write",
+      "eslint --max-warnings=0 --no-warn-ignored"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  }
+}

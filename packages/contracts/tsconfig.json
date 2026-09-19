@@ -1,0 +1,10 @@
+{
+  "extends": "@share-note/config/tsconfig/library.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "noEmit": true,
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src/**/*.ts", "tsup.config.ts", "eslint.config.mjs", "vitest.config.ts"]
+}

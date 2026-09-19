@@ -1,0 +1,27 @@
+{
+  "name": "@share-note/plugin",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@share-note/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@share-note/config": "workspace:*",
+    "@types/node": "catalog:",
+    "builtin-modules": "catalog:",
+    "esbuild": "catalog:",
+    "eslint": "catalog:",
+    "obsidian": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

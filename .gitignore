@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+out/
+.next/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+apps/plugin/main.js
+apps/plugin/*.zip
+
+.DS_Store
+*.log
+
+# Prisma client, regenerated on every build
+apps/api/src/generated/

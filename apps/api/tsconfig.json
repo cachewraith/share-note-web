@@ -1,0 +1,12 @@
+{
+  "extends": "@share-note/config/tsconfig/nest.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": ".",
+    "outDir": "dist",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.mts", "prisma.config.ts"]
+}

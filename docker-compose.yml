@@ -1,0 +1,74 @@
+# Development stack: Postgres, Redis and MinIO, with the bucket created and the
+# database migrated. Run the apps themselves with `pnpm dev`.
+#
+#   docker compose up -d
+#   pnpm --filter @share-note/api migrate:dev
+#
+name: share-note-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: share_note
+      POSTGRES_PASSWORD: share_note
+      POSTGRES_DB: share_note
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U share_note -d share_note']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: share_note
+      MINIO_ROOT_PASSWORD: share_note_dev_secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 share_note share_note_dev_secret
+        mc mb --ignore-existing local/share-note
+        mc anonymous set none local/share-note
+        echo "bucket ready"
+    restart: 'no'
+
+volumes:
+  postgres-data:
+  minio-data:

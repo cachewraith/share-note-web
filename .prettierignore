@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+pnpm-lock.yaml
+CHANGELOG.md
+apps/plugin/main.js
+apps/api/prisma/migrations/
+apps/api/src/generated/

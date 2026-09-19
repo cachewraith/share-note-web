@@ -1,0 +1,89 @@
+// Data model for share-note-web.
+//
+// Ids: `User` and `ApiKey` use UUIDs (internal only). `Share` and `Asset` use the
+// 21-character URL-safe public slug — it is the id *and* the capability that
+// grants access, so it is generated from a CSPRNG (see src/common/ids.ts).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Optional: v1 has no registration flow, users are created by the CLI.
+  email     String?  @unique
+  createdAt DateTime @default(now())
+
+  apiKeys ApiKey[]
+  shares  Share[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  name       String
+  /// Clear-text lookup handle. Not a secret on its own.
+  prefix     String    @unique @db.VarChar(16)
+  /// SHA-256 (hex) of the whole key. The raw key is shown once and never stored.
+  keyHash    String    @db.Char(64)
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+model Share {
+  /// Public slug. Unguessable; possession of it is what grants read access.
+  id          String    @id @db.VarChar(21)
+  ownerId     String    @db.Uuid
+  title       String    @db.VarChar(300)
+  markdown    String
+  /// SHA-256 (hex) of `markdown`. Lets an update skip work when nothing changed.
+  contentHash String    @db.Char(64)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  /// Reserved. Unshare is a hard delete in v1, so this is always null; reads
+  /// still filter on it so a future soft-delete needs no read-path change.
+  deletedAt   DateTime?
+  /// Reserved for expiring links (no UI in v1). Reads honour it already.
+  expiresAt   DateTime?
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  assets Asset[]
+
+  @@index([ownerId, createdAt(sort: Desc)])
+  @@map("shares")
+}
+
+model Asset {
+  /// Public slug, same generator as Share.id.
+  id         String   @id @db.VarChar(21)
+  shareId    String   @db.VarChar(21)
+  /// The name the note embeds the file under, e.g. `diagram.png`.
+  filename   String   @db.VarChar(255)
+  /// Object key in the bucket. Derived from shareId + id, never from user input.
+  storageKey String   @unique
+  mime       String   @db.VarChar(64)
+  size       Int
+  sha256     String   @db.Char(64)
+  createdAt  DateTime @default(now())
+
+  share Share @relation(fields: [shareId], references: [id], onDelete: Cascade)
+
+  @@unique([shareId, filename])
+  @@index([shareId])
+  @@map("assets")
+}
