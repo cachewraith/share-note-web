@@ -5,9 +5,9 @@
   "license": "MIT",
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
-    "dev": "prisma generate && tsx watch src/main.ts",
+    "dev": "prisma generate && nest start --watch",
     "start": "node dist/main.js",
-    "cli": "tsx src/cli/main.ts",
+    "cli": "node dist/cli/main.js",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "prisma generate && tsc --noEmit",
     "test": "vitest run --project unit",
@@ -20,6 +20,7 @@
     "@aws-sdk/client-s3": "catalog:",
     "@fastify/helmet": "catalog:",
     "@fastify/multipart": "catalog:",
+    "@fastify/static": "catalog:",
     "@nestjs/common": "catalog:",
     "@nestjs/core": "catalog:",
     "@nestjs/platform-fastify": "catalog:",
@@ -28,6 +29,7 @@
     "@prisma/client": "catalog:",
     "@share-note/contracts": "workspace:*",
     "dotenv": "catalog:",
+    "fastify": "catalog:",
     "ioredis": "catalog:",
     "nestjs-zod": "catalog:",
     "pg": "catalog:",
@@ -36,6 +38,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@nestjs/cli": "catalog:",
     "@nestjs/testing": "catalog:",
     "@share-note/config": "workspace:*",
     "@swc/core": "catalog:",

@@ -1,8 +1,12 @@
 # Development stack: Postgres, Redis and MinIO, with the bucket created and the
 # database migrated. Run the apps themselves with `pnpm dev`.
 #
-#   docker compose up -d
+#   docker compose up -d --wait
 #   pnpm --filter @share-note/api migrate:dev
+#
+# Host ports default to the standard ones. If something already listens on them,
+# put overrides in a root .env (POSTGRES_PORT, REDIS_PORT, MINIO_PORT,
+# MINIO_CONSOLE_PORT) and point apps/api/.env at the same numbers.
 #
 name: share-note-dev
 
@@ -15,7 +19,7 @@ services:
       POSTGRES_PASSWORD: share_note
       POSTGRES_DB: share_note
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -29,7 +33,7 @@ services:
     restart: unless-stopped
     command: ['redis-server', '--save', '', '--appendonly', 'no']
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6379}:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -37,15 +41,15 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: share_note
       MINIO_ROOT_PASSWORD: share_note_dev_secret
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -55,7 +59,7 @@ services:
       retries: 20
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
         condition: service_healthy

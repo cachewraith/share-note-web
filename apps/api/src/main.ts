@@ -1,25 +1,18 @@
 import 'reflect-metadata';
+import 'dotenv/config';
 
-import helmet from '@fastify/helmet';
 import { Logger } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { AppModule } from './app.module';
-import { APP_CONFIG, type AppConfig } from './config';
+import { bootstrap } from './bootstrap';
+import { runMigrationsIfConfigured } from './infra/prisma/migrate';
 
-async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter({ bodyLimit: 2 * 1024 * 1024 }),
-  );
-
-  const config = app.get<AppConfig>(APP_CONFIG);
-
-  await app.register(helmet, { contentSecurityPolicy: false });
-  app.enableShutdownHooks();
-
-  await app.listen({ port: config.port, host: config.host });
-  new Logger('bootstrap').log(`API listening on http://${config.host}:${String(config.port)}`);
+async function main(): Promise<void> {
+  await runMigrationsIfConfigured();
+  await bootstrap();
 }
 
-void bootstrap();
+main().catch((error: unknown) => {
+  // The config loader's message names the offending variables and nothing else,
+  // so it is safe to print; anything else is logged with its stack.
+  new Logger('bootstrap').error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
