@@ -37,21 +37,6 @@ export class ShareNoteSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('API key')
-      .setDesc('Created on the server with "cli create-user". It is shown once.')
-      .addText((text) => {
-        text
-          .setPlaceholder('snw_…')
-          .setValue(this.plugin.settings.apiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.apiKey = value.trim();
-            await this.plugin.saveSettings();
-          });
-        text.inputEl.type = 'password';
-        text.inputEl.autocomplete = 'off';
-      });
-
-    new Setting(containerEl)
       .setName('Copy link after sharing')
       .setDesc('Put the share link on the clipboard as soon as a note is published.')
       .addToggle((toggle) =>
@@ -63,7 +48,7 @@ export class ShareNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Test connection')
-      .setDesc('Checks that the server is reachable and that the key is accepted.')
+      .setDesc('Checks that the address answers and is a note-share server.')
       .addButton((button) =>
         button
           .setButtonText('Test connection')
@@ -92,10 +77,14 @@ export class ShareNoteSettingTab extends PluginSettingTab {
     try {
       const client = new ShareApiClient(createTransport(), {
         serverUrl: this.plugin.settings.serverUrl,
-        apiKey: this.plugin.settings.apiKey,
       });
-      const me = await client.me();
-      this.setStatus(`Connected. Key "${me.apiKey.name}" is accepted.`, 'success');
+      const ready = await client.ready();
+      this.setStatus(
+        ready.status === 'ready'
+          ? 'Connected. The server is ready to publish notes.'
+          : 'Reached the server, but it reports a dependency down; publishing may fail.',
+        ready.status === 'ready' ? 'success' : 'error',
+      );
     } catch (error) {
       this.setStatus(describeError(error), 'error');
     } finally {

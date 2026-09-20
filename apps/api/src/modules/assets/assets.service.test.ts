@@ -2,19 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sha256Hex } from '../../common/hash';
 import { UrlBuilder } from '../../common/url.builder';
 import { testConfig } from '../../../test/fixtures';
-import { type Principal } from '../auth/principal';
+import { EditTokenService } from '../shares/edit-token.service';
 import { type ShareRepository } from '../shares/share.repository';
 import { type AssetRecord, type AssetRepository } from './asset.repository';
 import { AssetsService } from './assets.service';
 
-const owner: Principal = {
-  userId: 'owner-1',
-  email: null,
-  userCreatedAt: new Date('2026-01-01'),
-  apiKeyId: 'key-1',
-  apiKeyName: 'obsidian',
-  apiKeyPrefix: 'abcd1234',
-};
+const TOKEN = `snt_${'a'.repeat(43)}`;
+const OTHER_TOKEN = `snt_${'b'.repeat(43)}`;
 
 const SHARE_ID = 'aaaaaaaaaaaaaaaaaaaaa';
 
@@ -46,7 +40,7 @@ describe('AssetsService.upload', () => {
     replace: vi.fn(),
     allStorageKeys: vi.fn(),
   };
-  const shares = { findOwned: vi.fn() };
+  const shares = { findForWrite: vi.fn() };
   const storage = {
     put: vi.fn(),
     get: vi.fn(),
@@ -57,7 +51,7 @@ describe('AssetsService.upload', () => {
   const config = testConfig();
   const service = new AssetsService(
     assets as unknown as AssetRepository,
-    shares as unknown as ShareRepository,
+    new EditTokenService(shares as unknown as ShareRepository),
     new UrlBuilder(config),
     storage,
     config,
@@ -65,7 +59,7 @@ describe('AssetsService.upload', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    shares.findOwned.mockResolvedValue({ id: SHARE_ID, ownerId: owner.userId });
+    shares.findForWrite.mockResolvedValue({ id: SHARE_ID, editTokenHash: sha256Hex(TOKEN) });
     assets.findByShareAndFilename.mockResolvedValue(null);
     assets.countByShare.mockResolvedValue(0);
     assets.create.mockImplementation((record: AssetRecord) => Promise.resolve(record));
@@ -78,13 +72,13 @@ describe('AssetsService.upload', () => {
 
   it('rejects a filename containing a path', async () => {
     await expect(
-      service.upload(owner, SHARE_ID, { filename: '../../etc/passwd', bytes: png }),
+      service.upload(SHARE_ID, TOKEN, { filename: '../../etc/passwd', bytes: png }),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     expect(storage.put).not.toHaveBeenCalled();
   });
 
   it('stores an image under a key built only from the share and asset ids', async () => {
-    const result = await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png });
+    const result = await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: png });
 
     expect(result.created).toBe(true);
     expect(result.mime).toBe('image/png');
@@ -103,19 +97,19 @@ describe('AssetsService.upload', () => {
       return Promise.resolve(record);
     });
 
-    await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png });
+    await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: png });
 
     expect(order).toEqual(['storage', 'database']);
   });
 
   it('ignores the declared type and trusts the magic bytes', async () => {
-    const result = await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: gif });
+    const result = await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: gif });
     expect(result.mime).toBe('image/gif');
   });
 
   it('refuses an svg disguised as a png', async () => {
     await expect(
-      service.upload(owner, SHARE_ID, {
+      service.upload(SHARE_ID, TOKEN, {
         filename: 'logo.png',
         bytes: Buffer.from('<svg onload="alert(1)"/>'),
       }),
@@ -125,7 +119,7 @@ describe('AssetsService.upload', () => {
 
   it('refuses an empty file', async () => {
     await expect(
-      service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: Buffer.alloc(0) }),
+      service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: Buffer.alloc(0) }),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
@@ -133,21 +127,21 @@ describe('AssetsService.upload', () => {
     const small = testConfig({ ASSET_MAX_BYTES: '16' });
     const limited = new AssetsService(
       assets as unknown as AssetRepository,
-      shares as unknown as ShareRepository,
+      new EditTokenService(shares as unknown as ShareRepository),
       new UrlBuilder(small),
       storage,
       small,
     );
 
     await expect(
-      limited.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png }),
+      limited.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: png }),
     ).rejects.toMatchObject({ code: 'PAYLOAD_TOO_LARGE' });
   });
 
   it('is a no-op when the same bytes are uploaded under the same name', async () => {
     assets.findByShareAndFilename.mockResolvedValue(existingAsset());
 
-    const result = await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png });
+    const result = await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: png });
 
     expect(result.created).toBe(false);
     expect(result.id).toBe('bbbbbbbbbbbbbbbbbbbbb');
@@ -157,7 +151,7 @@ describe('AssetsService.upload', () => {
   it('mints a new id when the same name gets different bytes', async () => {
     assets.findByShareAndFilename.mockResolvedValue(existingAsset());
 
-    const result = await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: gif });
+    const result = await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: gif });
 
     expect(result.id).not.toBe('bbbbbbbbbbbbbbbbbbbbb');
     expect(assets.replace).toHaveBeenCalledWith('bbbbbbbbbbbbbbbbbbbbb', expect.anything());
@@ -168,26 +162,31 @@ describe('AssetsService.upload', () => {
     assets.countByShare.mockResolvedValue(50);
 
     await expect(
-      service.upload(owner, SHARE_ID, { filename: 'new.png', bytes: png }),
+      service.upload(SHARE_ID, TOKEN, { filename: 'new.png', bytes: png }),
     ).rejects.toMatchObject({ code: 'ASSET_LIMIT_REACHED' });
 
     assets.findByShareAndFilename.mockResolvedValue(existingAsset());
     await expect(
-      service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: gif }),
+      service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: gif }),
     ).resolves.toBeDefined();
   });
 
-  it("refuses to attach to another owner's share", async () => {
-    shares.findOwned.mockResolvedValue({ id: SHARE_ID, ownerId: 'somebody-else' });
-
+  it('refuses to attach to a share whose edit token the caller does not hold', async () => {
     await expect(
-      service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png }),
+      service.upload(SHARE_ID, OTHER_TOKEN, { filename: 'a.png', bytes: png }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it('refuses to attach when no edit token is presented', async () => {
+    await expect(
+      service.upload(SHARE_ID, undefined, { filename: 'a.png', bytes: png }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(storage.put).not.toHaveBeenCalled();
   });
 
   it('sends a checksum the store can verify', async () => {
-    await service.upload(owner, SHARE_ID, { filename: 'a.png', bytes: png });
+    await service.upload(SHARE_ID, TOKEN, { filename: 'a.png', bytes: png });
 
     const put = storage.put.mock.calls[0]?.[0] as { checksumSha256: string };
     expect(put.checksumSha256).toBe(Buffer.from(sha256Hex(png), 'hex').toString('base64'));

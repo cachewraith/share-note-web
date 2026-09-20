@@ -14,12 +14,11 @@ import { DEFAULT_SETTINGS, type ShareNoteSettings } from '../src/core/settings';
  * transport is `fetch` — the same two seams the plugin already has. Everything
  * between them is the code that ships.
  *
- * Needs TEST_API_URL and TEST_API_KEY; skipped when they are absent so the
- * ordinary unit run stays offline.
+ * Needs TEST_API_URL; skipped when it is absent so the ordinary unit run stays
+ * offline. There is no key to supply — the server has no accounts.
  */
 const serverUrl = process.env.TEST_API_URL;
-const apiKey = process.env.TEST_API_KEY;
-const live = serverUrl !== undefined && apiKey !== undefined;
+const live = serverUrl !== undefined;
 
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -45,6 +44,7 @@ class FakeVault implements NoteGateway {
   markdown = '# Live plugin test\n';
   shareId: string | null = null;
   shareUrl: string | null = null;
+  shareToken: string | null = null;
   attachments = new Map<string, Buffer>();
 
   readMarkdown(): Promise<string> {
@@ -56,14 +56,22 @@ class FakeVault implements NoteGateway {
   shareUrlOf(): string | null {
     return this.shareUrl;
   }
-  writeShareDetails(_note: NoteHandle, share: { id: string; url: string }): Promise<void> {
+  shareTokenOf(): string | null {
+    return this.shareToken;
+  }
+  writeShareDetails(
+    _note: NoteHandle,
+    share: { id: string; url: string; editToken?: string },
+  ): Promise<void> {
     this.shareId = share.id;
     this.shareUrl = share.url;
+    if (share.editToken !== undefined) this.shareToken = share.editToken;
     return Promise.resolve();
   }
   clearShareDetails(): Promise<void> {
     this.shareId = null;
     this.shareUrl = null;
+    this.shareToken = null;
     return Promise.resolve();
   }
   resolveAttachments(references: readonly AttachmentReference[]): AttachmentHandle[] {
@@ -92,7 +100,8 @@ describe.skipIf(!live)('plugin against a live server', () => {
   let settings: ShareNoteSettings;
   let service: ShareService;
   let client: ShareApiClient;
-  const created: string[] = [];
+  /** Shares this run published, with the token needed to clean each one up. */
+  const created: { id: string; editToken: string }[] = [];
 
   async function publicShare(id: string) {
     const response = await fetch(`${serverUrl!}${ROUTES.publicShare(id)}`);
@@ -103,7 +112,7 @@ describe.skipIf(!live)('plugin against a live server', () => {
   }
 
   beforeAll(() => {
-    client = new ShareApiClient(fetchTransport, { serverUrl: serverUrl!, apiKey: apiKey! });
+    client = new ShareApiClient(fetchTransport, { serverUrl: serverUrl! });
   });
 
   beforeEach(() => {
@@ -113,22 +122,22 @@ describe.skipIf(!live)('plugin against a live server', () => {
   });
 
   afterAll(async () => {
-    for (const id of created) {
-      await client.deleteShare(id).catch(() => undefined);
+    for (const share of created) {
+      await client.deleteShare(share.id, share.editToken).catch(() => undefined);
     }
   });
 
-  it('validates the key', async () => {
-    const me = await client.me();
-    expect(me.apiKey.prefix).toHaveLength(8);
-    expect(me.userId).toMatch(/^[0-9a-f-]{36}$/);
+  it('reports the server ready without presenting a credential', async () => {
+    const ready = await client.ready();
+    expect(ready.status).toBe('ready');
+    expect(ready.checks).toMatchObject({ database: 'up', redis: 'up', storage: 'up' });
   });
 
   it('shares a note and serves it publicly', async () => {
     vault.markdown = '# Live plugin test\n\nBody text.\n';
 
     const result = await service.share(NOTE);
-    created.push(result.id);
+    created.push({ id: result.id, editToken: vault.shareToken! });
 
     expect(result.kind).toBe('created');
     const published = await publicShare(result.id);
@@ -140,7 +149,7 @@ describe.skipIf(!live)('plugin against a live server', () => {
     vault.markdown = '---\nsecret: hunter2\n---\n\n# Live plugin test\n';
 
     const result = await service.share(NOTE);
-    created.push(result.id);
+    created.push({ id: result.id, editToken: vault.shareToken! });
 
     const published = await publicShare(result.id);
     expect(published.markdown).not.toContain('hunter2');
@@ -148,7 +157,7 @@ describe.skipIf(!live)('plugin against a live server', () => {
 
   it('updates at the same url and skips work when nothing changed', async () => {
     const first = await service.share(NOTE);
-    created.push(first.id);
+    created.push({ id: first.id, editToken: vault.shareToken! });
 
     const unchanged = await service.share(NOTE);
     expect(unchanged.kind).toBe('unchanged');
@@ -166,7 +175,7 @@ describe.skipIf(!live)('plugin against a live server', () => {
     vault.attachments.set('diagram.png', PNG);
 
     const first = await service.share(NOTE);
-    created.push(first.id);
+    created.push({ id: first.id, editToken: vault.shareToken! });
     expect(first.uploaded).toBe(1);
 
     const published = await publicShare(first.id);
@@ -187,7 +196,7 @@ describe.skipIf(!live)('plugin against a live server', () => {
     vault.attachments.set('diagram.png', PNG);
 
     const first = await service.share(NOTE);
-    created.push(first.id);
+    created.push({ id: first.id, editToken: vault.shareToken! });
 
     vault.attachments.set('diagram.png', OTHER_PNG);
     const second = await service.share(NOTE);
@@ -216,30 +225,35 @@ describe.skipIf(!live)('plugin against a live server', () => {
 
   it('publishes afresh when the recorded share was deleted elsewhere', async () => {
     const first = await service.share(NOTE);
-    await client.deleteShare(first.id);
+    await client.deleteShare(first.id, vault.shareToken!);
 
     const second = await service.share(NOTE);
-    created.push(second.id);
+    created.push({ id: second.id, editToken: vault.shareToken! });
 
     expect(second.kind).toBe('created');
     expect(second.id).not.toBe(first.id);
   });
 
-  it('reports a rejected key without leaking it', async () => {
-    const wrong = new ShareApiClient(fetchTransport, {
-      serverUrl: serverUrl!,
-      apiKey: `snw_zzzzzzzz_${'z'.repeat(43)}`,
-    });
+  it('refuses to change a share when the token is wrong, and says so as NOT_FOUND', async () => {
+    const shared = await service.share(NOTE);
+    created.push({ id: shared.id, editToken: vault.shareToken! });
 
-    await expect(wrong.me()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(
+      client.updateShare(shared.id, `snt_${'z'.repeat(43)}`, {
+        title: 'hijacked',
+        markdown: 'x',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const published = await publicShare(shared.id);
+    expect(published.title).not.toBe('hijacked');
   });
 
   it('reports a url that is not a share-note server', async () => {
     const elsewhere = new ShareApiClient(fetchTransport, {
       serverUrl: `${serverUrl!}/not-an-api`,
-      apiKey: apiKey!,
     });
 
-    await expect(elsewhere.me()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(elsewhere.ready()).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

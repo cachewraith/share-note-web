@@ -15,7 +15,7 @@ correct, safe and cheap to run.
 ```
 ┌──────────────┐   requestUrl    ┌─────────────────────────────┐
 │   Obsidian   │ ──────────────► │  apps/api    NestJS/Fastify │
-│  apps/plugin │   Bearer key    │                             │
+│  apps/plugin │  X-Edit-Token   │                             │
 └──────────────┘                 │  controller → service →     │
                                  │       repository / port     │
 ┌──────────────┐   fetch (SSR)   │                             │
@@ -61,14 +61,15 @@ the AWS SDK; swapping to a filesystem or GCS backend is one line in
 
 ## Request path, end to end
 
-1. **RateLimitGuard** — Redis fixed-window counter, keyed by API-key prefix or
-   client IP. Runs first so a flood of bad keys is cheap to refuse.
-2. **ApiKeyGuard** — global, so every route needs a key unless it is marked
-   `@Public()`. Forgetting the decorator makes a route private.
-3. **Validation pipe** — the contract's zod schema for the body, query and
+1. **RateLimitGuard** — Redis fixed-window counter, keyed on the client
+   address. It is the only global guard: there is no authentication to run
+   after it (see
+   [decision 15](decisions/0015-no-authentication-edit-tokens-instead.md)), so
+   it is also the first and last thing standing between a stranger and a write.
+2. **Validation pipe** — the contract's zod schema for the body, query and
    params. A failure arrives at the filter already shaped as a contract error.
-4. **Controller → service → repository.**
-5. **AppErrorFilter** — turns anything thrown into
+3. **Controller → service → repository.**
+4. **AppErrorFilter** — turns anything thrown into
    `{ error: { code, message } }`. Unrecognised failures become
    `INTERNAL_ERROR` with a fixed message; the real one is logged.
 
@@ -100,7 +101,7 @@ and an unchanged note costs one small database read.
 | ---------- | ------------------------------------------------------------------------------- |
 | `users`    | UUID, optional email. Created by the CLI; there is no sign-up.                  |
 | `api_keys` | `prefix` unique and indexed, `keyHash` = sha-256 of the whole key, `revokedAt`. |
-| `shares`   | id is the 21-char public slug, indexed by `(ownerId, createdAt desc)`.          |
+| `shares`   | id is the 21-char public slug; `editTokenHash` is what authorises a write.      |
 | `assets`   | id is a public slug, unique on `(shareId, filename)`, cascades from `shares`.   |
 
 `shares.deletedAt` and `shares.expiresAt` are reserved: unsharing is a hard
@@ -118,19 +119,20 @@ links can be added without touching a read path.
 2. **Notes that were unshared.** "Unshare" must mean gone, not hidden.
 3. **The link itself.** A share URL is a capability: whoever holds it can read
    the note, and nobody else should be able to find it.
-4. **API keys.** A key can publish and delete on behalf of its owner.
+4. **Edit tokens.** A share's token is what lets anyone change or delete the
+   note behind a link. Unlike the link itself, it is never meant to travel.
 5. **The reader.** Opening a shared link must not run somebody else's code or
    report the visit to a third party.
 
 ## Who the attackers are
 
-|                           | Capability                                          | What they want                                            |
-| ------------------------- | --------------------------------------------------- | --------------------------------------------------------- |
-| **A passer-by**           | Can request any URL on the server                   | To read notes they were not sent                          |
-| **A share author**        | Can put arbitrary markdown and images on the server | To run script in another reader's browser, or beacon them |
-| **Another user**          | Has a valid API key                                 | To read, change or delete someone else's shares           |
-| **A network observer**    | Sees traffic                                        | To capture an API key or note content                     |
-| **An operator's mistake** | Misconfiguration                                    | Anything the above want                                   |
+|                                 | Capability                                          | What they want                                            |
+| ------------------------------- | --------------------------------------------------- | --------------------------------------------------------- |
+| **A passer-by**                 | Can request any URL on the server                   | To read notes they were not sent                          |
+| **A share author**              | Can put arbitrary markdown and images on the server | To run script in another reader's browser, or beacon them |
+| **A reader you sent a link to** | Holds a live share id                               | To change or delete the note behind it                    |
+| **A network observer**          | Sees traffic                                        | To capture an edit token or note content                  |
+| **An operator's mistake**       | Misconfiguration                                    | Anything the above want                                   |
 
 Out of scope: the server operator, who can read the database by definition —
 end-to-end encryption is on the roadmap and would change that. Also out of
@@ -163,17 +165,19 @@ sites it links to.
 **Residual risk:** a link pasted somewhere public is public. That is inherent to
 capability URLs.
 
-### A user reaching another user's shares — OWASP A01
+### A reader rewriting or deleting the note they were sent — OWASP A01
 
-Every mutating route resolves the share through `findOwnedOrThrow`, which
-compares `ownerId` to the authenticated principal. There is no route that takes
-an owner id from the client.
+Publishing is open to anyone, deliberately. Changing an existing share is not:
+every mutating route resolves it through `EditTokenService`, which compares the
+presented `X-Edit-Token` against the stored `sha256(token)` with
+`timingSafeEqual`. The share id is not sufficient, which matters because the id
+is exactly what the author hands out.
 
-A share owned by someone else answers `NOT_FOUND`, not `FORBIDDEN`: telling a
-caller that an id exists but is not theirs would turn the API into an oracle for
-which links are live.
+A wrong token, a missing token and an id that never existed all answer
+`NOT_FOUND`, never `FORBIDDEN`: telling a caller that an id exists but is
+locked would turn the API into an oracle for which links are live.
 
-Attachment uploads check ownership of the parent share before touching storage,
+Attachment uploads check the token of the parent share before touching storage,
 and storage keys are built from `shares/<shareId>/<assetId>.<ext>` — ids the
 server generated, never the client's filename — so a crafted name cannot reach
 another share's objects.
@@ -226,24 +230,24 @@ serving one from the API's origin would hand an attacker script execution there.
 Uploads carry a sha-256 that the object store verifies, so a truncated or
 altered body cannot be recorded as stored.
 
-### Stolen API keys — OWASP A04, A07
+### Stolen edit tokens — OWASP A04
 
-Only `sha256(key)` is stored, so a database dump yields nothing usable. SHA-256
-is deliberately the _fast_ hash here: the key is 256 bits of CSPRNG output, so
-there is nothing to brute force, and a slow KDF would only add latency to every
-request. (A password would be a different story — see
+Only `sha256(token)` is stored, so a database dump yields nothing that can
+rewrite a share. SHA-256 is deliberately the _fast_ hash here: a token is 256
+bits of CSPRNG output, so there is nothing to brute force, and a slow KDF would
+only add latency to every write. (A password would be a different story — see
 `docs/decisions/0005-api-key-format-and-hashing.md`.)
 
-Verification looks the key up by prefix and compares digests with
-`timingSafeEqual`; a miss still runs a decoy comparison, so response time does
-not reveal which prefixes exist. Malformed, unknown, revoked and wrong-secret
-all answer the same 401 after the same work.
+The row is found by share id and the digests compared with `timingSafeEqual`,
+so a comparison leaks nothing about how close a guess was. A malformed token is
+refused before it is hashed at all.
 
-Keys are revocable (`revokedAt`) and attributable (`lastUsedAt`, `name`). The
-plugin refuses to send one over plain `http` to anything but loopback.
+The plugin keeps the token in the note's frontmatter, which is never uploaded,
+and refuses to send it over plain `http` to anything but loopback.
 
-**Residual risk:** keys do not expire on their own. Rotating one is
-`cli create-key` then `cli revoke-key`.
+**Residual risk:** tokens do not expire on their own, and there is no
+revocation list — `cli issue-token` replaces a share's token, which is the only
+rotation there is, and it needs an operator.
 
 ### Hostile input sizes — OWASP A06
 
@@ -271,8 +275,8 @@ is a deliberate trade, recorded in
 Unrecognised errors answer `INTERNAL_ERROR` with a fixed message; the stack is
 logged, never returned. Prisma's `query` log level is off, because it would
 write note content to stdout on every write. The exception filter deliberately
-does not log request bodies. Nothing logs an API key — only its prefix — and the
-public share payload has no owner field, by construction and by test.
+does not log request bodies. Nothing logs an edit token, and no response ever
+echoes one back after the create that minted it — both are asserted by test.
 
 OpenAPI docs are refused when `NODE_ENV=production`: the config schema rejects
 the combination at boot rather than trusting anyone to remember.

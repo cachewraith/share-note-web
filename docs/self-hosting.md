@@ -49,8 +49,8 @@ docker compose logs -f api
 ## Put TLS in front
 
 The compose file does not terminate TLS, and it publishes nothing to the host.
-Both services must be reachable over https, because the API key travels in an
-`Authorization` header.
+Both services must be reachable over https: a note's text and its edit token
+travel in the request, and the token is what lets that share be changed later.
 
 Caddy is the shortest path:
 
@@ -72,20 +72,34 @@ would make it bypassable.
 > everything else to `web`, and set both public URLs to that hostname. The
 > viewer's CSP is built from `PUBLIC_API_URL`, so it follows automatically.
 
-## Create a user and a key
+## Point the plugin at it
+
+There is nothing to issue. Put `https://notes-api.example.com` into the
+plugin's settings and press "Test connection" — the server has no accounts and
+no API keys, so a working address is the whole configuration.
+
+That also means **anyone who can reach this API can publish to it**. The write
+rate limit bounds how fast, but it does not bound who. If this is meant for you
+and not for the internet, keep the API off the public internet — behind a VPN,
+a tunnel, or an allowlist at the proxy — rather than relying on the URL being
+obscure.
+
+What stops a _reader_ of one of your links from editing or deleting the note
+behind it is a per-share edit token, minted when the share is created and kept
+in the note's frontmatter. The server stores only its digest and cannot reissue
+it, so a note deleted from your vault leaves a share nobody can take down:
 
 ```bash
-docker compose exec api node dist/cli/main.js create-user --email you@example.com
+docker compose exec api node dist/cli/main.js issue-token --share <id>
 ```
 
-The key is printed once. Paste it, and `https://notes-api.example.com`, into the
-plugin's settings and press "Test connection".
+mints a replacement for that case, and for shares published before 0.3.0, which
+have no token at all. Issuing one invalidates the previous token, so a vault
+still holding the old one stops being able to update that share.
 
 Other commands:
 
 ```bash
-docker compose exec api node dist/cli/main.js create-key --email you@example.com
-docker compose exec api node dist/cli/main.js revoke-key --prefix aBcD1234
 docker compose exec api node dist/cli/main.js prune-assets --dry-run
 ```
 
@@ -145,7 +159,7 @@ one and says which. The full list is in `apps/api/.env.example` and
 | `MARKDOWN_MAX_BYTES`    | 1048576  | Lower it. It cannot be raised above the protocol limit.                                                  |
 | `ASSET_MAX_BYTES`       | 10485760 | Lower it if disk is tight.                                                                               |
 | `ASSETS_PER_SHARE_MAX`  | 50       | Lower it.                                                                                                |
-| `RATE_LIMIT_WRITE_MAX`  | 30/min   | Raise for a busy team, lower for a public server.                                                        |
+| `RATE_LIMIT_WRITE_MAX`  | 30/min   | Raise for a busy team, lower for a public server. Keyed on the client address, which is all there is.    |
 | `RATE_LIMIT_PUBLIC_MAX` | 600/min  | Shared by every reader: the viewer calls the API from one address.                                       |
 | `SHARE_CACHE_SECONDS`   | 0        | Above 0 the viewer caches lookups, and keeps serving unshared notes for longer than the number suggests. |
 | `ENABLE_DOCS`           | false    | Serves OpenAPI at `/docs`. Refused in production.                                                        |
@@ -221,7 +235,6 @@ pnpm dev:up
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 pnpm --filter @share-note/api build
-pnpm --filter @share-note/api cli create-user --email you@example.com
 pnpm --filter @share-note/api dev
 pnpm --filter @share-note/web dev
 ```

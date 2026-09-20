@@ -1,5 +1,15 @@
 export const SHARE_ID_KEY = 'share_id';
 export const SHARE_URL_KEY = 'share_url';
+/**
+ * The share's edit token. It is what lets this vault update or unshare the
+ * note later, and the server cannot reissue it, so it lives with the note
+ * rather than in plugin settings — copy the note to another vault and the
+ * share moves with it.
+ *
+ * Frontmatter is never uploaded (see `splitFrontmatter`), so publishing a note
+ * does not publish the token that controls it.
+ */
+export const SHARE_TOKEN_KEY = 'share_token';
 
 /**
  * Splits a note into its frontmatter block and its body.

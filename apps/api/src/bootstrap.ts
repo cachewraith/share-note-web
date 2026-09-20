@@ -91,11 +91,6 @@ function registerDocs(app: NestFastifyApplication): void {
       .setTitle('share-note')
       .setDescription('Publish a single note to a public link.')
       .setVersion('1')
-      .addSecurity('apiKey', {
-        type: 'http',
-        scheme: 'bearer',
-        description: 'An API key created with `pnpm --filter @share-note/api cli create-user`.',
-      })
       .build(),
   );
   SwaggerModule.setup(ROUTES.docs.slice(1), app, cleanupOpenApiDoc(document));

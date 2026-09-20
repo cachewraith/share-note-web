@@ -3,7 +3,6 @@ import { ApiExcludeEndpoint } from '@nestjs/swagger';
 import { type HealthResponse, type ReadyResponse, ROUTES } from '@share-note/contracts';
 import { type FastifyReply } from 'fastify';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { Public } from '../auth/public.decorator';
 import { HealthService } from './health.service';
 
 /**
@@ -11,7 +10,6 @@ import { HealthService } from './health.service';
  * to be able to ask "are you alive" even while the API is shedding load, and a
  * rate-limited probe would restart a healthy container.
  */
-@Public()
 @RateLimit('none')
 @Controller()
 export class HealthController {

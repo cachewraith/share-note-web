@@ -1,10 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import {
-  API_KEY_PREFIX_LENGTH,
-  ApiKeySchema,
-  PUBLIC_ID_ALPHABET,
-  PUBLIC_ID_LENGTH,
-} from '@share-note/contracts';
+import { EDIT_TOKEN_PATTERN, PUBLIC_ID_ALPHABET, PUBLIC_ID_LENGTH } from '@share-note/contracts';
 import { sha256Hex } from './hash';
 
 /**
@@ -32,44 +27,31 @@ export function generatePublicId(length: number = PUBLIC_ID_LENGTH): string {
   return id;
 }
 
-export interface GeneratedApiKey {
-  /** The full key. Shown to the operator once and never stored. */
-  readonly key: string;
-  readonly prefix: string;
-  readonly keyHash: string;
+export interface GeneratedEditToken {
+  /** The full token. Returned to the author once and never stored. */
+  readonly token: string;
+  readonly tokenHash: string;
 }
 
 /**
- * `snw_<prefix>_<secret>`. The prefix is a clear-text lookup handle; the secret
- * is 32 CSPRNG bytes. Only `sha256(key)` reaches the database.
- */
-export function generateApiKey(): GeneratedApiKey {
-  const prefix = generatePublicId(API_KEY_PREFIX_LENGTH);
-  const secret = randomBytes(32).toString('base64url');
-  const key = `snw_${prefix}_${secret}`;
-  return { key, prefix, keyHash: sha256Hex(key) };
-}
-
-export interface ParsedApiKey {
-  readonly prefix: string;
-  readonly keyHash: string;
-}
-
-/**
- * Splits a presented key into its lookup handle and digest. Returns null for
- * anything that is not exactly the shape the contract defines, so malformed
- * input never reaches the database.
+ * `snt_<secret>`, where the secret is 32 CSPRNG bytes. Only `sha256(token)`
+ * reaches the database, so a copy of the table does not let anyone edit the
+ * shares in it.
  *
- * The segments cannot be found by splitting on `_`: the base64url secret
- * contains `_` and `-`. The contract's pattern fixes every segment's width, so
- * the offsets are constant.
+ * Unlike an API key there is no clear-text prefix to index: a token is always
+ * presented alongside the share id it belongs to, so the row is found by id and
+ * the token only ever has to be compared.
  */
-const PREFIX_OFFSET = 'snw_'.length;
+export function generateEditToken(): GeneratedEditToken {
+  const token = `snt_${randomBytes(32).toString('base64url')}`;
+  return { token, tokenHash: sha256Hex(token) };
+}
 
-export function parseApiKey(presented: string): ParsedApiKey | null {
-  if (!ApiKeySchema.safeParse(presented).success) return null;
-  return {
-    prefix: presented.slice(PREFIX_OFFSET, PREFIX_OFFSET + API_KEY_PREFIX_LENGTH),
-    keyHash: sha256Hex(presented),
-  };
+/**
+ * Digest of a presented token, or null if it is not exactly the shape the
+ * contract defines — so malformed input is refused before any comparison.
+ */
+export function hashPresentedEditToken(presented: string | undefined): string | null {
+  if (presented === undefined || !EDIT_TOKEN_PATTERN.test(presented)) return null;
+  return sha256Hex(presented);
 }

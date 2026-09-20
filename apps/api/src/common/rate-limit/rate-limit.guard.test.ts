@@ -3,7 +3,6 @@ import { Reflector } from '@nestjs/core';
 import { type Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { testConfig } from '../../../test/fixtures';
-import { generateApiKey } from '../ids';
 import { type RateLimitBucket, RATE_LIMIT_BUCKET } from './rate-limit.decorator';
 import { RateLimitGuard } from './rate-limit.guard';
 
@@ -44,7 +43,7 @@ function redisReturning(counts: number[]): Redis {
 
 describe('RateLimitGuard', () => {
   const reflector = new Reflector();
-  const config = testConfig({ RATE_LIMIT_WRITE_MAX: '2', RATE_LIMIT_READ_MAX: '5' });
+  const config = testConfig({ RATE_LIMIT_WRITE_MAX: '2', RATE_LIMIT_PUBLIC_MAX: '5' });
 
   function guardWith(redis: Redis, bucket: RateLimitBucket) {
     vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue(bucket);
@@ -93,19 +92,28 @@ describe('RateLimitGuard', () => {
     });
   });
 
-  it('applies the write budget, which is smaller than the read budget', async () => {
+  it('applies the write budget, which is smaller than the public one', async () => {
     const { context: writeContext } = contextFor();
     await expect(
       guardWith(redisReturning([3]), 'write').canActivate(writeContext),
     ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
 
-    const { context: readContext } = contextFor();
-    await expect(guardWith(redisReturning([3]), 'read').canActivate(readContext)).resolves.toBe(
+    const { context: publicContext } = contextFor();
+    await expect(guardWith(redisReturning([3]), 'public').canActivate(publicContext)).resolves.toBe(
       true,
     );
   });
 
-  it('keys authenticated callers by key prefix, not by shared ip', async () => {
+  it('charges an unannotated route to the write budget, the strictest one', async () => {
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
+    const { context } = contextFor();
+
+    await expect(
+      guardWith(redisReturning([3]), 'write').canActivate(context),
+    ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
+  it('gives each client address its own bucket', async () => {
     const seen: string[] = [];
     const recording = {
       multi: () => ({
@@ -120,47 +128,15 @@ describe('RateLimitGuard', () => {
       }),
     } as unknown as Redis;
 
-    const first = generateApiKey();
-    const second = generateApiKey();
+    await guardWith(recording, 'write').canActivate(contextFor({ ip: '198.51.100.7' }).context);
+    await guardWith(recording, 'write').canActivate(contextFor({ ip: '198.51.100.8' }).context);
 
-    await guardWith(recording, 'write').canActivate(
-      contextFor({ headers: { authorization: `Bearer ${first.key}` }, ip: '198.51.100.7' }).context,
-    );
-    await guardWith(recording, 'write').canActivate(
-      contextFor({ headers: { authorization: `Bearer ${second.key}` }, ip: '198.51.100.7' })
-        .context,
-    );
-
-    expect(seen[0]).toContain(`k:${first.prefix}`);
-    expect(seen[1]).toContain(`k:${second.prefix}`);
+    expect(seen[0]).toContain('ip:198.51.100.7');
+    expect(seen[1]).toContain('ip:198.51.100.8');
     expect(seen[0]).not.toBe(seen[1]);
   });
 
-  it('never puts the key itself in the redis key', async () => {
-    const seen: string[] = [];
-    const recording = {
-      multi: () => ({
-        incr: (key: string) => {
-          seen.push(key);
-          return {
-            expire: () => ({
-              exec: () => Promise.resolve([[null, 1] as const, [null, 1] as const]),
-            }),
-          };
-        },
-      }),
-    } as unknown as Redis;
-
-    const generated = generateApiKey();
-    await guardWith(recording, 'write').canActivate(
-      contextFor({ headers: { authorization: `Bearer ${generated.key}` } }).context,
-    );
-
-    const secret = generated.key.slice(`snw_${generated.prefix}_`.length);
-    expect(seen[0]).not.toContain(secret);
-  });
-
-  it('falls back to the client ip when no key is presented', async () => {
+  it('keys on the client ip, the only thing an anonymous caller has', async () => {
     const seen: string[] = [];
     const recording = {
       multi: () => ({
@@ -180,7 +156,7 @@ describe('RateLimitGuard', () => {
     expect(seen[0]).toContain('ip:192.0.2.4');
   });
 
-  it('ignores a malformed authorization header and keys by ip', async () => {
+  it('ignores an authorization header entirely: there is nothing to authenticate', async () => {
     const seen: string[] = [];
     const recording = {
       multi: () => ({
@@ -196,7 +172,7 @@ describe('RateLimitGuard', () => {
     } as unknown as Redis;
 
     await guardWith(recording, 'public').canActivate(
-      contextFor({ headers: { authorization: 'Bearer nonsense' }, ip: '192.0.2.4' }).context,
+      contextFor({ headers: { authorization: 'Bearer anything' }, ip: '192.0.2.4' }).context,
     );
 
     expect(seen[0]).toContain('ip:192.0.2.4');

@@ -1,16 +1,16 @@
 import {
   ASSET_FILE_FIELD,
-  AUTH_SCHEME,
+  EDIT_TOKEN_HEADER,
   isApiError,
   isCreateAssetResponse,
   isCreateShareResponse,
-  isMeResponse,
+  isReadyResponse,
   isUpdateShareResponse,
   joinUrl,
   ROUTES,
   type CreateAssetResponse,
   type CreateShareResponse,
-  type MeResponse,
+  type ReadyResponse,
   type UpdateShareResponse,
 } from '@share-note/contracts/lite';
 import { ShareApiError } from './errors';
@@ -24,15 +24,24 @@ import { buildMultipartBody, type HttpTransport } from './http';
  * checked against the contract's guards: if the URL points at something that is
  * not a share-note server, that is caught here and says so, rather than
  * surfacing later as an undefined property.
+ *
+ * Nothing here authenticates. Publishing needs no credential; every write to an
+ * existing share carries that share's edit token, which the note's frontmatter
+ * holds.
  */
 export class ShareApiClient {
   constructor(
     private readonly transport: HttpTransport,
-    private readonly options: { serverUrl: string; apiKey: string },
+    private readonly options: { serverUrl: string },
   ) {}
 
-  async me(): Promise<MeResponse> {
-    return this.request('GET', ROUTES.me, isMeResponse);
+  /**
+   * What "Test connection" calls. There is no key to verify, so the most a
+   * client can establish is that the address answers and is a share-note
+   * server with its dependencies up.
+   */
+  async ready(): Promise<ReadyResponse> {
+    return this.request('GET', ROUTES.ready, isReadyResponse);
   }
 
   async createShare(input: { title: string; markdown: string }): Promise<CreateShareResponse> {
@@ -41,22 +50,24 @@ export class ShareApiClient {
 
   async updateShare(
     id: string,
+    editToken: string,
     input: { title: string; markdown: string },
   ): Promise<UpdateShareResponse> {
-    return this.request('PUT', ROUTES.share(id), isUpdateShareResponse, input);
+    return this.request('PUT', ROUTES.share(id), isUpdateShareResponse, input, editToken);
   }
 
-  async deleteShare(id: string): Promise<void> {
+  async deleteShare(id: string, editToken: string): Promise<void> {
     const response = await this.send({
       method: 'DELETE',
       path: ROUTES.share(id),
-      headers: {},
+      headers: { [EDIT_TOKEN_HEADER]: editToken },
     });
     if (response.status !== 204) this.fail(response);
   }
 
   async uploadAsset(input: {
     shareId: string;
+    editToken: string;
     filename: string;
     contentType: string;
     bytes: ArrayBuffer;
@@ -71,7 +82,10 @@ export class ShareApiClient {
     const response = await this.send({
       method: 'POST',
       path: ROUTES.shareAssets(input.shareId),
-      headers: { 'Content-Type': multipart.contentType },
+      headers: {
+        'Content-Type': multipart.contentType,
+        [EDIT_TOKEN_HEADER]: input.editToken,
+      },
       body: multipart.body,
     });
 
@@ -84,11 +98,15 @@ export class ShareApiClient {
     path: string,
     isExpected: (value: unknown) => value is T,
     body?: unknown,
+    editToken?: string,
   ): Promise<T> {
     const response = await this.send({
       method,
       path,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: {
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(editToken === undefined ? {} : { [EDIT_TOKEN_HEADER]: editToken }),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
 
@@ -107,7 +125,6 @@ export class ShareApiClient {
       method: input.method,
       headers: {
         ...input.headers,
-        Authorization: `${AUTH_SCHEME} ${this.options.apiKey}`,
         Accept: 'application/json',
       },
       ...(input.body === undefined ? {} : { body: input.body }),

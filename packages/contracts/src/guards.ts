@@ -1,5 +1,5 @@
 import {
-  API_KEY_PATTERN,
+  EDIT_TOKEN_PATTERN,
   isAllowedImageMimeType,
   isErrorCode,
   PUBLIC_ID_PATTERN,
@@ -9,8 +9,8 @@ import {
 import type {
   CreateAssetResponse,
   CreateShareResponse,
-  MeResponse,
   PublicShareResponse,
+  ReadyResponse,
   UpdateShareResponse,
 } from './schemas';
 import type { ApiError } from './errors';
@@ -26,8 +26,8 @@ import type { ApiError } from './errors';
  * and invalid payloads, so the mirror cannot drift out of step unnoticed.
  */
 
-export function isApiKey(value: unknown): value is string {
-  return typeof value === 'string' && API_KEY_PATTERN.test(value);
+export function isEditToken(value: unknown): value is string {
+  return typeof value === 'string' && EDIT_TOKEN_PATTERN.test(value);
 }
 
 export function isPublicId(value: unknown): value is string {
@@ -48,29 +48,47 @@ export function isApiError(value: unknown): value is ApiError {
   );
 }
 
-export function isMeResponse(value: unknown): value is MeResponse {
-  if (!isRecord(value)) return false;
-  const apiKey = value.apiKey;
-
-  return (
-    isUuid(value.userId) &&
-    (value.email === null || isEmail(value.email)) &&
-    isIsoDateTime(value.createdAt) &&
-    isRecord(apiKey) &&
-    isUuid(apiKey.id) &&
-    typeof apiKey.name === 'string' &&
-    typeof apiKey.prefix === 'string'
-  );
-}
-
 export function isCreateShareResponse(value: unknown): value is CreateShareResponse {
   return (
-    isRecord(value) && isPublicId(value.id) && isUrl(value.url) && isSha256Hex(value.contentHash)
+    isRecord(value) &&
+    isPublicId(value.id) &&
+    isUrl(value.url) &&
+    isSha256Hex(value.contentHash) &&
+    isEditToken(value.editToken)
   );
 }
 
+/** An update echoes no token: the caller already holds the one it presented. */
 export function isUpdateShareResponse(value: unknown): value is UpdateShareResponse {
-  return isCreateShareResponse(value) && typeof field(value, 'updated') === 'boolean';
+  return (
+    isRecord(value) &&
+    isPublicId(value.id) &&
+    isUrl(value.url) &&
+    isSha256Hex(value.contentHash) &&
+    typeof value.updated === 'boolean'
+  );
+}
+
+/**
+ * What the plugin's "Test connection" looks for. It proves the URL points at a
+ * share-note server, which is all a client can establish now that there is no
+ * key to present.
+ */
+export function isReadyResponse(value: unknown): value is ReadyResponse {
+  if (!isRecord(value)) return false;
+  const checks = value.checks;
+
+  return (
+    (value.status === 'ready' || value.status === 'degraded') &&
+    isRecord(checks) &&
+    isDependencyStatus(checks.database) &&
+    isDependencyStatus(checks.redis) &&
+    isDependencyStatus(checks.storage)
+  );
+}
+
+function isDependencyStatus(value: unknown): boolean {
+  return value === 'up' || value === 'down';
 }
 
 export function isCreateAssetResponse(value: unknown): value is CreateAssetResponse {
@@ -126,19 +144,6 @@ function isDetailList(value: unknown): boolean {
 
 function isPositiveInteger(value: unknown): boolean {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(value: unknown): boolean {
-  return typeof value === 'string' && UUID_PATTERN.test(value);
-}
-
-/** Matches what zod's `z.email()` accepts closely enough for a response check. */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
-
-function isEmail(value: unknown): boolean {
-  return typeof value === 'string' && EMAIL_PATTERN.test(value);
 }
 
 function isUrl(value: unknown): boolean {

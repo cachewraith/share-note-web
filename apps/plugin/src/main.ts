@@ -189,7 +189,6 @@ export default class ShareNotePlugin extends Plugin {
 
     const client = new ShareApiClient(createTransport(), {
       serverUrl: this.settings.serverUrl,
-      apiKey: this.settings.apiKey,
     });
 
     return new ShareService(client, new VaultAdapter(this.app), this.settings, () =>

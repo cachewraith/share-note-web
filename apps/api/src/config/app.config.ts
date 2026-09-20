@@ -30,7 +30,6 @@ export interface AppConfig {
   };
   readonly rateLimit: {
     readonly windowSeconds: number;
-    readonly readMax: number;
     readonly writeMax: number;
     readonly publicMax: number;
   };
@@ -66,7 +65,6 @@ export function toAppConfig(env: Env): AppConfig {
     },
     rateLimit: {
       windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS,
-      readMax: env.RATE_LIMIT_READ_MAX,
       writeMax: env.RATE_LIMIT_WRITE_MAX,
       publicMax: env.RATE_LIMIT_PUBLIC_MAX,
     },

@@ -2,28 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { ApiErrorSchema } from './errors';
 import {
   isApiError,
-  isApiKey,
   isCreateAssetResponse,
   isCreateShareResponse,
-  isMeResponse,
+  isEditToken,
   isPublicId,
+  isReadyResponse,
   isPublicShareResponse,
   isSha256Hex,
   isUpdateShareResponse,
 } from './guards';
-import { ApiKeySchema, PublicIdSchema, Sha256HexSchema } from './ids';
+import { EditTokenSchema, PublicIdSchema, Sha256HexSchema } from './ids';
 import {
   CreateAssetResponseSchema,
   CreateShareResponseSchema,
-  MeResponseSchema,
   PublicShareResponseSchema,
+  ReadyResponseSchema,
   UpdateShareResponseSchema,
 } from './schemas';
 
 const ID = 'abcDEF123_-abcDEF1234';
 const HASH = 'a'.repeat(64);
-const UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-const KEY = `snw_abcd1234_${'a'.repeat(43)}`;
+const TOKEN = `snt_${'a'.repeat(43)}`;
 
 const asset = {
   id: ID,
@@ -40,11 +39,11 @@ const share = {
   contentHash: HASH,
 };
 
-const me = {
-  userId: UUID,
-  email: 'someone@example.com',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  apiKey: { id: UUID, name: 'obsidian', prefix: 'abcd1234' },
+const created = { ...share, editToken: TOKEN };
+
+const ready = {
+  status: 'ready',
+  checks: { database: 'up', redis: 'up', storage: 'up' },
 };
 
 const publicShare = {
@@ -75,7 +74,7 @@ function corruptions(valid: Record<string, unknown>): unknown[] {
  * schema on a valid payload and on every way of breaking it.
  */
 const cases = [
-  ['isApiKey', isApiKey, (value: unknown) => ApiKeySchema.safeParse(value).success, KEY],
+  ['isEditToken', isEditToken, (value: unknown) => EditTokenSchema.safeParse(value).success, TOKEN],
   ['isPublicId', isPublicId, (value: unknown) => PublicIdSchema.safeParse(value).success, ID],
   ['isSha256Hex', isSha256Hex, (value: unknown) => Sha256HexSchema.safeParse(value).success, HASH],
 ] as const;
@@ -109,7 +108,7 @@ describe('object guards agree with their schemas', () => {
       'isCreateShareResponse',
       isCreateShareResponse,
       (value: unknown) => CreateShareResponseSchema.safeParse(value).success,
-      share,
+      created,
     ],
     [
       'isUpdateShareResponse',
@@ -124,10 +123,10 @@ describe('object guards agree with their schemas', () => {
       { ...asset, created: true },
     ],
     [
-      'isMeResponse',
-      isMeResponse,
-      (value: unknown) => MeResponseSchema.safeParse(value).success,
-      me,
+      'isReadyResponse',
+      isReadyResponse,
+      (value: unknown) => ReadyResponseSchema.safeParse(value).success,
+      ready,
     ],
     [
       'isPublicShareResponse',
@@ -160,7 +159,7 @@ describe('object guards agree with their schemas', () => {
 
 describe('guards catch the cases the plugin actually hits', () => {
   it('rejects an html error page', () => {
-    expect(isMeResponse('<!doctype html>')).toBe(false);
+    expect(isCreateShareResponse('<!doctype html>')).toBe(false);
     expect(isApiError('<!doctype html>')).toBe(false);
   });
 
@@ -169,7 +168,11 @@ describe('guards catch the cases the plugin actually hits', () => {
   });
 
   it('rejects a share id of the wrong length', () => {
-    expect(isCreateShareResponse({ ...share, id: 'short' })).toBe(false);
+    expect(isCreateShareResponse({ ...created, id: 'short' })).toBe(false);
+  });
+
+  it('rejects a create response with no edit token, which would strand the note', () => {
+    expect(isCreateShareResponse(share)).toBe(false);
   });
 
   it('accepts an error body with validation details', () => {
@@ -186,9 +189,5 @@ describe('guards catch the cases the plugin actually hits', () => {
 
   it('rejects an unknown error code, so a new one is noticed rather than mishandled', () => {
     expect(isApiError({ error: { code: 'TEAPOT', message: 'no' } })).toBe(false);
-  });
-
-  it('accepts a null email, which a CLI-created user has', () => {
-    expect(isMeResponse({ ...me, email: null })).toBe(true);
   });
 });

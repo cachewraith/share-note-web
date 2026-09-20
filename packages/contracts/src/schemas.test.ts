@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ApiKeySchema, PublicIdSchema } from './ids';
+import { EditTokenSchema, PublicIdSchema } from './ids';
 import { isAllowedImageMimeType, LIMITS, utf8ByteLength } from './limits';
-import {
-  CreateShareRequestSchema,
-  ListSharesQuerySchema,
-  PublicShareResponseSchema,
-} from './schemas';
+import { CreateShareRequestSchema, PublicShareResponseSchema } from './schemas';
 import { joinUrl, ROUTES } from './routes';
 
 describe('PublicIdSchema', () => {
@@ -18,16 +14,19 @@ describe('PublicIdSchema', () => {
   });
 });
 
-describe('ApiKeySchema', () => {
-  const valid = `snw_abcd1234_${'a'.repeat(43)}`;
+describe('EditTokenSchema', () => {
+  const valid = `snt_${'a'.repeat(43)}`;
 
   it('accepts the wire format', () => {
-    expect(ApiKeySchema.safeParse(valid).success).toBe(true);
+    expect(EditTokenSchema.safeParse(valid).success).toBe(true);
   });
 
-  it.each(['snw_abcd1234_short', `key_abcd1234_${'a'.repeat(43)}`, ''])('rejects %s', (value) => {
-    expect(ApiKeySchema.safeParse(value).success).toBe(false);
-  });
+  it.each(['snt_short', `key_${'a'.repeat(43)}`, `snt_${'a'.repeat(42)}`, ''])(
+    'rejects %s',
+    (value) => {
+      expect(EditTokenSchema.safeParse(value).success).toBe(false);
+    },
+  );
 });
 
 describe('CreateShareRequestSchema', () => {
@@ -50,20 +49,6 @@ describe('CreateShareRequestSchema', () => {
     const markdown = '€'.repeat(LIMITS.markdownMaxBytes / 3 + 1);
     expect(utf8ByteLength(markdown)).toBeGreaterThan(LIMITS.markdownMaxBytes);
     expect(CreateShareRequestSchema.safeParse({ title: 'Note', markdown }).success).toBe(false);
-  });
-});
-
-describe('ListSharesQuerySchema', () => {
-  it('applies the default limit', () => {
-    expect(ListSharesQuerySchema.parse({}).limit).toBe(50);
-  });
-
-  it('coerces a string limit from the query string', () => {
-    expect(ListSharesQuerySchema.parse({ limit: '10' }).limit).toBe(10);
-  });
-
-  it('rejects a limit above the maximum', () => {
-    expect(ListSharesQuerySchema.safeParse({ limit: '1000' }).success).toBe(false);
   });
 });
 

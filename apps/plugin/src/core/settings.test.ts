@@ -8,12 +8,9 @@ import {
   type ShareNoteSettings,
 } from './settings';
 
-const VALID_KEY = `snw_abcd1234_${'a'.repeat(43)}`;
-
 const settings = (overrides: Partial<ShareNoteSettings> = {}): ShareNoteSettings => ({
   ...DEFAULT_SETTINGS,
   serverUrl: 'https://notes.example.com',
-  apiKey: VALID_KEY,
   ...overrides,
 });
 
@@ -29,7 +26,7 @@ describe('normaliseSettings', () => {
   });
 
   it('survives a hand-edited data.json with wrong types', () => {
-    expect(normaliseSettings({ serverUrl: 42, apiKey: null, copyLinkAfterShare: 'yes' })).toEqual(
+    expect(normaliseSettings({ serverUrl: 42, copyLinkAfterShare: 'yes' })).toEqual(
       DEFAULT_SETTINGS,
     );
   });
@@ -55,7 +52,7 @@ describe('validateSettings', () => {
   });
 
   it('reports a missing server url first', () => {
-    expect(validateSettings(settings({ serverUrl: '', apiKey: '' }))).toBe('missing-server-url');
+    expect(validateSettings(settings({ serverUrl: '' }))).toBe('missing-server-url');
   });
 
   it('reports an unparseable server url', () => {
@@ -83,12 +80,18 @@ describe('validateSettings', () => {
     },
   );
 
-  it('reports a missing key', () => {
-    expect(validateSettings(settings({ apiKey: '' }))).toBe('missing-api-key');
+  it('needs nothing but a server url, because there is no key to configure', () => {
+    expect(validateSettings(settings())).toBeNull();
   });
 
-  it('reports a key in the wrong format before any request is made', () => {
-    expect(validateSettings(settings({ apiKey: 'hunter2' }))).toBe('invalid-api-key');
+  it('drops an api key left in a data.json written by an older version', () => {
+    const parsed = normaliseSettings({
+      serverUrl: 'https://notes.example.com',
+      apiKey: `snw_abcd1234_${'a'.repeat(43)}`,
+    });
+
+    expect(parsed).not.toHaveProperty('apiKey');
+    expect(validateSettings(parsed)).toBeNull();
   });
 
   it('has a message for every problem it can report', () => {

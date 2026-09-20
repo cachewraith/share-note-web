@@ -3,7 +3,8 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 
 export interface ShareRecord {
   readonly id: string;
-  readonly ownerId: string;
+  /** Null on shares created before edit tokens existed: readable, not writable. */
+  readonly editTokenHash: string | null;
   readonly title: string;
   readonly contentHash: string;
   readonly createdAt: Date;
@@ -30,10 +31,6 @@ export interface PublicShareRecord {
   }[];
 }
 
-export interface ShareListItem extends ShareRecord {
-  readonly assetCount: number;
-}
-
 /**
  * Every query filters `deletedAt` and `expiresAt`, so the reserved columns in
  * the schema are honoured from day one and a later soft-delete or expiry
@@ -52,7 +49,7 @@ export class ShareRepository {
 
   async create(input: {
     id: string;
-    ownerId: string;
+    editTokenHash: string;
     title: string;
     markdown: string;
     contentHash: string;
@@ -63,7 +60,7 @@ export class ShareRepository {
     });
   }
 
-  async findOwned(id: string, now: Date): Promise<ShareRecord | null> {
+  async findForWrite(id: string, now: Date): Promise<ShareRecord | null> {
     return this.prisma.share.findFirst({
       where: { id, ...visible(now) },
       select: selectShare,
@@ -95,21 +92,15 @@ export class ShareRepository {
     return this.prisma.share.update({ where: { id }, data: input, select: selectShare });
   }
 
-  async listByOwner(input: {
-    ownerId: string;
-    limit: number;
-    cursor?: string;
-    now: Date;
-  }): Promise<ShareListItem[]> {
-    const rows = await this.prisma.share.findMany({
-      where: { ownerId: input.ownerId, ...visible(input.now) },
-      select: { ...selectShare, _count: { select: { assets: true } } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: input.limit,
-      ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+  /** Replaces a share's edit token. Used by `cli issue-token`. */
+  async setEditTokenHash(id: string, editTokenHash: string): Promise<ShareRecord | null> {
+    const share = await this.prisma.share.findUnique({ where: { id }, select: { id: true } });
+    if (!share) return null;
+    return this.prisma.share.update({
+      where: { id },
+      data: { editTokenHash },
+      select: selectShare,
     });
-
-    return rows.map(({ _count, ...share }) => ({ ...share, assetCount: _count.assets }));
   }
 
   /** Deletes the share and returns the storage keys its assets occupied. */
@@ -127,7 +118,7 @@ export class ShareRepository {
 
 const selectShare = {
   id: true,
-  ownerId: true,
+  editTokenHash: true,
   title: true,
   contentHash: true,
   createdAt: true,

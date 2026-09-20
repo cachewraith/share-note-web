@@ -1,6 +1,6 @@
 import { type App, TFile } from 'obsidian';
 import type { AttachmentReference } from '../core/attachments';
-import { SHARE_ID_KEY, SHARE_URL_KEY } from '../core/frontmatter';
+import { SHARE_ID_KEY, SHARE_TOKEN_KEY, SHARE_URL_KEY } from '../core/frontmatter';
 import type { AttachmentHandle, NoteGateway, NoteHandle } from '../core/note-gateway';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -33,17 +33,27 @@ export class VaultAdapter implements NoteGateway {
     return this.frontmatterString(note, SHARE_URL_KEY);
   }
 
+  shareTokenOf(note: NoteHandle): string | null {
+    return this.frontmatterString(note, SHARE_TOKEN_KEY);
+  }
+
   /**
    * `processFrontMatter` rather than rewriting the file: it edits the block in
    * place, leaves the rest of the note and anyone else's fields alone, and
    * serialises concurrent edits for us.
    */
-  async writeShareDetails(note: NoteHandle, share: { id: string; url: string }): Promise<void> {
+  async writeShareDetails(
+    note: NoteHandle,
+    share: { id: string; url: string; editToken?: string },
+  ): Promise<void> {
     await this.app.fileManager.processFrontMatter(
       this.fileFor(note),
       (frontmatter: Record<string, unknown>) => {
         frontmatter[SHARE_ID_KEY] = share.id;
         frontmatter[SHARE_URL_KEY] = share.url;
+        // Only on creation: an update returns no token, and overwriting the
+        // stored one with undefined would strand the share.
+        if (share.editToken !== undefined) frontmatter[SHARE_TOKEN_KEY] = share.editToken;
       },
     );
   }
@@ -54,6 +64,7 @@ export class VaultAdapter implements NoteGateway {
       (frontmatter: Record<string, unknown>) => {
         delete frontmatter[SHARE_ID_KEY];
         delete frontmatter[SHARE_URL_KEY];
+        delete frontmatter[SHARE_TOKEN_KEY];
       },
     );
   }

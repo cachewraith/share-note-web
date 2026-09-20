@@ -11,6 +11,8 @@ const SHARE_ID = 'aaaaaaaaaaaaaaaaaaaaa';
 const SHARE_URL = `https://notes.example.com/${SHARE_ID}`;
 const NOTE: NoteHandle = { path: 'Notes/Design.md', title: 'Design' };
 
+const TOKEN = `snt_${'a'.repeat(43)}`;
+
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]).buffer;
 const OTHER_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 9, 9, 9]).buffer;
 
@@ -19,9 +21,10 @@ class FakeGateway implements NoteGateway {
   markdown = '# Design\n';
   shareId: string | null = null;
   shareUrl: string | null = null;
+  shareToken: string | null = null;
   attachments = new Map<string, ArrayBuffer>();
   readCounts = new Map<string, number>();
-  written: { id: string; url: string } | null = null;
+  written: { id: string; url: string; editToken?: string } | null = null;
   cleared = false;
 
   readMarkdown(): Promise<string> {
@@ -33,16 +36,24 @@ class FakeGateway implements NoteGateway {
   shareUrlOf(): string | null {
     return this.shareUrl;
   }
-  writeShareDetails(_note: NoteHandle, share: { id: string; url: string }): Promise<void> {
+  shareTokenOf(): string | null {
+    return this.shareToken;
+  }
+  writeShareDetails(
+    _note: NoteHandle,
+    share: { id: string; url: string; editToken?: string },
+  ): Promise<void> {
     this.written = share;
     this.shareId = share.id;
     this.shareUrl = share.url;
+    if (share.editToken !== undefined) this.shareToken = share.editToken;
     return Promise.resolve();
   }
   clearShareDetails(): Promise<void> {
     this.cleared = true;
     this.shareId = null;
     this.shareUrl = null;
+    this.shareToken = null;
     return Promise.resolve();
   }
   resolveAttachments(references: readonly AttachmentReference[]): AttachmentHandle[] {
@@ -84,7 +95,7 @@ describe('ShareService', () => {
   };
 
   const createReply = () =>
-    reply(201, { id: SHARE_ID, url: SHARE_URL, contentHash: 'f'.repeat(64) });
+    reply(201, { id: SHARE_ID, url: SHARE_URL, contentHash: 'f'.repeat(64), editToken: TOKEN });
   const updateReply = (updated: boolean) =>
     reply(200, { id: SHARE_ID, url: SHARE_URL, contentHash: 'f'.repeat(64), updated });
   const assetReply = (created = true) =>
@@ -104,10 +115,7 @@ describe('ShareService', () => {
     settings = { ...DEFAULT_SETTINGS, uploads: {} };
     persist = vi.fn().mockResolvedValue(undefined);
     service = new ShareService(
-      new ShareApiClient(transport, {
-        serverUrl: 'https://notes.example.com',
-        apiKey: `snw_abcd1234_${'a'.repeat(43)}`,
-      }),
+      new ShareApiClient(transport, { serverUrl: 'https://notes.example.com' }),
       gateway,
       settings,
       persist as () => Promise<void>,
@@ -121,7 +129,15 @@ describe('ShareService', () => {
       const result = await service.share(NOTE);
 
       expect(result).toMatchObject({ kind: 'created', id: SHARE_ID, url: SHARE_URL });
-      expect(gateway.written).toEqual({ id: SHARE_ID, url: SHARE_URL });
+      expect(gateway.written).toEqual({ id: SHARE_ID, url: SHARE_URL, editToken: TOKEN });
+    });
+
+    it('never uploads the edit token it just recorded', async () => {
+      createReply();
+
+      await service.share(NOTE);
+
+      expect(JSON.stringify(sentJson(0))).not.toContain(TOKEN);
     });
 
     it('uploads the note without its frontmatter', async () => {
@@ -145,6 +161,7 @@ describe('ShareService', () => {
   describe('re-sharing', () => {
     beforeEach(() => {
       gateway.shareId = SHARE_ID;
+      gateway.shareToken = TOKEN;
     });
 
     it('updates the existing share rather than creating another', async () => {
@@ -275,6 +292,7 @@ describe('ShareService', () => {
   describe('unshare', () => {
     beforeEach(() => {
       gateway.shareId = SHARE_ID;
+      gateway.shareToken = TOKEN;
       settings.uploads[SHARE_ID] = { 'a.png': 'f'.repeat(64) };
     });
 

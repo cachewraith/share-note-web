@@ -4,21 +4,17 @@ import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
-import { createKey, createUser, pruneAssets, revokeKey } from './commands';
+import { issueToken, pruneAssets } from './commands';
 
 const USAGE = `
 Usage: pnpm --filter @share-note/api cli <command> [options]
        node dist/cli/main.js <command> [options]        (inside the container)
 
 Commands:
-  create-user   [--email <address>] [--key-name <name>]
-                Create a user and print its first API key.
-
-  create-key    --email <address> [--key-name <name>]
-                Add another API key to an existing user.
-
-  revoke-key    --prefix <prefix>
-                Revoke a key by the prefix shown in its id.
+  issue-token   --share <id>
+                Mint a new edit token for an existing share, replacing the one
+                it had. For a share published before edit tokens existed, or
+                one whose token was lost with the note that held it.
 
   prune-assets  [--grace-hours <n>] [--dry-run]
                 Delete stored objects the database no longer references.
@@ -36,9 +32,7 @@ async function main(): Promise<number> {
   const { values } = parseArgs({
     args: argv,
     options: {
-      email: { type: 'string' },
-      'key-name': { type: 'string' },
-      prefix: { type: 'string' },
+      share: { type: 'string' },
       'grace-hours': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
     },
@@ -50,22 +44,9 @@ async function main(): Promise<number> {
 
   try {
     switch (command) {
-      case 'create-user':
-        return await createUser(app, {
-          email: values.email ?? null,
-          keyName: values['key-name'] ?? 'obsidian',
-        });
-
-      case 'create-key':
-        if (!values.email) return fail('create-key needs --email');
-        return await createKey(app, {
-          email: values.email,
-          keyName: values['key-name'] ?? 'obsidian',
-        });
-
-      case 'revoke-key':
-        if (!values.prefix) return fail('revoke-key needs --prefix');
-        return await revokeKey(app, { prefix: values.prefix });
+      case 'issue-token':
+        if (!values.share) return fail('issue-token needs --share');
+        return await issueToken(app, { shareId: values.share });
 
       case 'prune-assets':
         return await pruneAssets(app, {

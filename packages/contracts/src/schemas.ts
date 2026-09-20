@@ -1,12 +1,6 @@
 import { z } from 'zod';
-import { AssetIdSchema, Sha256HexSchema, ShareIdSchema } from './ids';
-import {
-  ALLOWED_IMAGE_MIME_TYPES,
-  LIST_SHARES_DEFAULT_LIMIT,
-  LIST_SHARES_MAX_LIMIT,
-  LIMITS,
-  utf8ByteLength,
-} from './constants';
+import { AssetIdSchema, EditTokenSchema, Sha256HexSchema, ShareIdSchema } from './ids';
+import { ALLOWED_IMAGE_MIME_TYPES, LIMITS, utf8ByteLength } from './constants';
 
 const MarkdownSchema = z
   .string()
@@ -19,23 +13,7 @@ const TitleSchema = z.string().trim().min(1).max(LIMITS.titleMaxLength);
 const IsoDateTimeSchema = z.iso.datetime();
 
 /* -------------------------------------------------------------------------- */
-/* me                                                                          */
-/* -------------------------------------------------------------------------- */
-
-export const MeResponseSchema = z.object({
-  userId: z.uuid(),
-  email: z.email().nullable(),
-  createdAt: IsoDateTimeSchema,
-  apiKey: z.object({
-    id: z.uuid(),
-    name: z.string(),
-    prefix: z.string(),
-  }),
-});
-export type MeResponse = z.infer<typeof MeResponseSchema>;
-
-/* -------------------------------------------------------------------------- */
-/* shares (owner-scoped)                                                       */
+/* shares                                                                      */
 /* -------------------------------------------------------------------------- */
 
 export const CreateShareRequestSchema = z.object({
@@ -55,43 +33,22 @@ export type ShareRef = z.infer<typeof ShareRefSchema>;
 
 export const CreateShareResponseSchema = ShareRefSchema.extend({
   contentHash: Sha256HexSchema,
+  /**
+   * Returned exactly once, on creation. Present it to replace or delete this
+   * share; the server keeps only its hash and cannot reissue it. Losing it
+   * means the note stays published and can no longer be changed or taken down
+   * through the API.
+   */
+  editToken: EditTokenSchema,
 });
 export type CreateShareResponse = z.infer<typeof CreateShareResponseSchema>;
 
-export const UpdateShareResponseSchema = CreateShareResponseSchema.extend({
+export const UpdateShareResponseSchema = ShareRefSchema.extend({
+  contentHash: Sha256HexSchema,
   /** False when the submitted markdown hashed to the stored contentHash. */
   updated: z.boolean(),
 });
 export type UpdateShareResponse = z.infer<typeof UpdateShareResponseSchema>;
-
-export const ShareSummarySchema = ShareRefSchema.extend({
-  title: z.string(),
-  contentHash: Sha256HexSchema,
-  assetCount: z.number().int().nonnegative(),
-  createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema,
-});
-export type ShareSummary = z.infer<typeof ShareSummarySchema>;
-
-export { LIST_SHARES_DEFAULT_LIMIT, LIST_SHARES_MAX_LIMIT } from './constants';
-
-export const ListSharesQuerySchema = z.object({
-  limit: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(LIST_SHARES_MAX_LIMIT)
-    .default(LIST_SHARES_DEFAULT_LIMIT),
-  /** Id of the last item of the previous page. */
-  cursor: ShareIdSchema.optional(),
-});
-export type ListSharesQuery = z.infer<typeof ListSharesQuerySchema>;
-
-export const ListSharesResponseSchema = z.object({
-  shares: z.array(ShareSummarySchema),
-  nextCursor: ShareIdSchema.nullable(),
-});
-export type ListSharesResponse = z.infer<typeof ListSharesResponseSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* assets                                                                      */

@@ -48,16 +48,29 @@ export class ShareService {
     const markdown = stripFrontmatter(await this.notes.readMarkdown(note));
 
     const existingId = this.notes.shareIdOf(note);
-    const published = await this.publish(existingId, { title: note.title, markdown }, report);
+    const existingToken = this.notes.shareTokenOf(note);
+    const published = await this.publish(
+      existingId,
+      existingToken,
+      { title: note.title, markdown },
+      report,
+    );
 
     const { uploaded, skipped } = await this.uploadAttachments(
       published.id,
+      published.editToken,
       markdown,
       note,
       report,
     );
 
-    await this.notes.writeShareDetails(note, { id: published.id, url: published.url });
+    await this.notes.writeShareDetails(note, {
+      id: published.id,
+      url: published.url,
+      // Written only when this run created the share; an update leaves the
+      // token already in the note alone.
+      ...(published.mintedToken === undefined ? {} : { editToken: published.mintedToken }),
+    });
 
     // "Unchanged" only holds if nothing had to be uploaded either.
     const kind = published.kind === 'unchanged' && uploaded > 0 ? 'updated' : published.kind;
@@ -69,9 +82,18 @@ export class ShareService {
     const id = this.notes.shareIdOf(note);
     if (id === null) throw new ShareApiError('NOT_FOUND', 'This note is not shared');
 
+    const token = this.notes.shareTokenOf(note);
+    if (token === null) {
+      throw new ShareApiError(
+        'FORBIDDEN',
+        `This note has no ${'share_token'} in its frontmatter, so this vault cannot unshare it. ` +
+          'Ask the server operator to run "cli issue-token" for it.',
+      );
+    }
+
     let deletedOnServer = true;
     try {
-      await this.api.deleteShare(id);
+      await this.api.deleteShare(id, token);
     } catch (error) {
       // Already gone server-side: still worth tidying the note.
       if (!(error instanceof ShareApiError) || error.code !== 'NOT_FOUND') throw error;
@@ -92,17 +114,29 @@ export class ShareService {
    */
   private async publish(
     existingId: string | null,
+    existingToken: string | null,
     input: { title: string; markdown: string },
     report: ProgressReporter,
-  ): Promise<{ kind: ShareResult['kind']; id: string; url: string }> {
-    if (existingId !== null) {
+  ): Promise<{
+    kind: ShareResult['kind'];
+    id: string;
+    url: string;
+    editToken: string;
+    /** Set only when this call created the share, so the note records it once. */
+    mintedToken?: string;
+  }> {
+    // Without the token an update cannot be authorised, so a note that has an
+    // id but no token is republished as a new share rather than failing. The
+    // old one stays up at its own link until somebody removes it.
+    if (existingId !== null && existingToken !== null) {
       report('Updating shared note…');
       try {
-        const updated = await this.api.updateShare(existingId, input);
+        const updated = await this.api.updateShare(existingId, existingToken, input);
         return {
           kind: updated.updated ? 'updated' : 'unchanged',
           id: updated.id,
           url: updated.url,
+          editToken: existingToken,
         };
       } catch (error) {
         if (!(error instanceof ShareApiError) || error.code !== 'NOT_FOUND') throw error;
@@ -112,7 +146,13 @@ export class ShareService {
 
     report('Sharing note…');
     const created = await this.api.createShare(input);
-    return { kind: 'created', id: created.id, url: created.url };
+    return {
+      kind: 'created',
+      id: created.id,
+      url: created.url,
+      editToken: created.editToken,
+      mintedToken: created.editToken,
+    };
   }
 
   /**
@@ -122,6 +162,7 @@ export class ShareService {
    */
   private async uploadAttachments(
     shareId: string,
+    editToken: string,
     markdown: string,
     note: NoteHandle,
     report: ProgressReporter,
@@ -147,6 +188,7 @@ export class ShareService {
       report(`Uploading attachment ${String(index + 1)} of ${String(resolved.length)}…`);
       await this.api.uploadAsset({
         shareId,
+        editToken,
         filename,
         contentType: attachment.contentType,
         bytes,

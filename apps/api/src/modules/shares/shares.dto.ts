@@ -2,8 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   CreateShareRequestSchema,
   CreateShareResponseSchema,
-  ListSharesQuerySchema,
-  ListSharesResponseSchema,
   PublicShareResponseSchema,
   ShareIdSchema,
   UpdateShareRequestSchema,
@@ -19,12 +17,10 @@ import { z } from 'zod';
  */
 export class CreateShareDto extends createZodDto(CreateShareRequestSchema) {}
 export class UpdateShareDto extends createZodDto(UpdateShareRequestSchema) {}
-export class ListSharesQueryDto extends createZodDto(ListSharesQuerySchema) {}
 export class ShareIdParamDto extends createZodDto(z.object({ id: ShareIdSchema })) {}
 
 export class CreateShareResponseDto extends createZodDto(CreateShareResponseSchema) {}
 export class UpdateShareResponseDto extends createZodDto(UpdateShareResponseSchema) {}
-export class ListSharesResponseDto extends createZodDto(ListSharesResponseSchema) {}
 export class PublicShareResponseDto extends createZodDto(PublicShareResponseSchema) {}
 
 /** Documents the error envelope once so every route can reference it. */

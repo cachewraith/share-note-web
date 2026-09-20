@@ -5,18 +5,18 @@ here is half-built: if it is on this page, no code pretends it exists.
 
 ## Out of scope for v1, designed for
 
-| Item                           | What already accommodates it                                                                                                                  |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| End-to-end encryption          | The API never needs to read markdown; rendering is one module and could move to the client.                                                   |
-| Password-protected shares      | The public read path is a single service method, and `Share` has room for a verifier.                                                         |
-| Expiring links (UI)            | `Share.expiresAt` exists and every read path honours it. Only the field on the API and the UI are missing.                                    |
-| Soft delete / trash            | `Share.deletedAt` exists and every read path filters on it.                                                                                   |
-| Comments, collaboration, teams | Would need a second authorization axis; today it is one `ownerId` check in the service layer.                                                 |
-| Billing                        | No per-user accounting exists.                                                                                                                |
-| Full-text search               | Markdown is stored as `text`; a `tsvector` column and a GIN index would be a migration, not a redesign.                                       |
-| Custom themes                  | The viewer's colours are CSS custom properties on `:root`.                                                                                    |
-| Open registration              | The auth module verifies keys and resolves users; only the sign-up route and email verification are missing.                                  |
-| Transcluding notes             | `![[Some Note]]` renders as its name. Resolving it means uploading a second note's content, which is a product decision, not a technical one. |
+| Item                           | What already accommodates it                                                                                                                                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| End-to-end encryption          | The API never needs to read markdown; rendering is one module and could move to the client.                                                                                                                                                        |
+| Password-protected shares      | The public read path is a single service method, and `Share` has room for a verifier.                                                                                                                                                              |
+| Expiring links (UI)            | `Share.expiresAt` exists and every read path honours it. Only the field on the API and the UI are missing.                                                                                                                                         |
+| Soft delete / trash            | `Share.deletedAt` exists and every read path filters on it.                                                                                                                                                                                        |
+| Comments, collaboration, teams | Would need a second authorization axis; today it is one edit-token comparison in the service layer.                                                                                                                                                |
+| Billing                        | No per-user accounting exists.                                                                                                                                                                                                                     |
+| Full-text search               | Markdown is stored as `text`; a `tsvector` column and a GIN index would be a migration, not a redesign.                                                                                                                                            |
+| Custom themes                  | The viewer's colours are CSS custom properties on `:root`.                                                                                                                                                                                         |
+| Accounts of any kind           | Deliberately absent: the API authenticates nobody, and a per-share edit token guards writes ([decision 15](decisions/0015-no-authentication-edit-tokens-instead.md)). Adding accounts back means a second authorization axis, not a sign-up route. |
+| Transcluding notes             | `![[Some Note]]` renders as its name. Resolving it means uploading a second note's content, which is a product decision, not a technical one.                                                                                                      |
 
 ## Known limitations
 
@@ -27,10 +27,16 @@ here is half-built: if it is on this page, no code pretends it exists.
 - **A Redis outage is a full outage.** The rate limiter fails closed on purpose
   ([ADR 9](decisions/0009-rate-limiting-is-ours-and-fails-closed.md)); readers
   are affected too.
-- **Rate limiting keys on the client IP** for unauthenticated traffic. Behind a
-  proxy this needs `TRUST_PROXY=true` and a proxy that overwrites
+- **Rate limiting keys on the client IP**, which is all an anonymous caller has.
+  Behind a proxy this needs `TRUST_PROXY=true` and a proxy that overwrites
   `X-Forwarded-For`.
-- **API keys do not expire.** Rotation is `create-key` then `revoke-key`.
+- **Anyone who can reach the API can publish to it.** That is the design, not
+  an oversight. The write rate limit bounds how fast, not who; an operator who
+  does not want a public service keeps the API off the public internet.
+- **Edit tokens do not expire and cannot be recovered.** A share whose token is
+  lost stays published until an operator runs `cli issue-token`.
+- **There is no way to list what you have published.** The note in your vault is
+  the record; a lost vault means shares you can no longer find.
 - **No CDN in front of attachments.** Fine for notes; put one there if you serve
   large images at volume.
 - **The public rate limit is shared by every reader.** The viewer renders on the
@@ -41,8 +47,6 @@ here is half-built: if it is on this page, no code pretends it exists.
 
 **Product**
 
-- **Listing is `createdAt desc` only**, cursor-paginated, with no filter or
-  search.
 - **Attachments are addressed by filename within a share.** Two vault files with
   the same basename in different folders collide, and the later upload wins
   ([ADR 10](decisions/0010-attachments-keep-their-filename.md)).

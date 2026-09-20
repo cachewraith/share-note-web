@@ -1,4 +1,4 @@
-import { ROUTES } from '@share-note/contracts/lite';
+import { EDIT_TOKEN_HEADER, ROUTES } from '@share-note/contracts/lite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareApiClient } from './api-client';
 import { ShareApiError } from './errors';
@@ -6,12 +6,26 @@ import type { HttpRequest, HttpResponse } from './http';
 
 const SHARE_ID = 'aaaaaaaaaaaaaaaaaaaaa';
 const ASSET_ID = 'bbbbbbbbbbbbbbbbbbbbb';
-const KEY = `snw_abcd1234_${'a'.repeat(43)}`;
+const TOKEN = `snt_${'a'.repeat(43)}`;
 
 const shareResponse = {
   id: SHARE_ID,
   url: 'https://notes.example.com/aaaaaaaaaaaaaaaaaaaaa',
   contentHash: 'f'.repeat(64),
+  editToken: TOKEN,
+};
+
+/** An update echoes no token back. */
+const updateResponse = {
+  id: SHARE_ID,
+  url: 'https://notes.example.com/aaaaaaaaaaaaaaaaaaaaa',
+  contentHash: 'f'.repeat(64),
+  updated: true,
+};
+
+const readyResponse = {
+  status: 'ready',
+  checks: { database: 'up', redis: 'up', storage: 'up' },
 };
 
 const assetResponse = {
@@ -28,7 +42,6 @@ describe('ShareApiClient', () => {
   const transport = vi.fn<(request: HttpRequest) => Promise<HttpResponse>>();
   const client = new ShareApiClient(transport, {
     serverUrl: 'https://notes.example.com',
-    apiKey: KEY,
   });
 
   const reply = (status: number, body: unknown) => {
@@ -47,21 +60,40 @@ describe('ShareApiClient', () => {
   });
 
   describe('requests', () => {
-    it('sends the key as a bearer token', async () => {
-      reply(200, {
-        userId: '00000000-0000-4000-8000-000000000000',
-        email: null,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        apiKey: {
-          id: '00000000-0000-4000-8000-000000000001',
-          name: 'obsidian',
-          prefix: 'abcd1234',
-        },
+    it('sends no credential when publishing', async () => {
+      reply(201, shareResponse);
+      await client.createShare({ title: 'Note', markdown: '# Note' });
+
+      const headers = transport.mock.calls[0]?.[0].headers ?? {};
+      expect(headers.Authorization).toBeUndefined();
+      expect(headers[EDIT_TOKEN_HEADER]).toBeUndefined();
+    });
+
+    it('sends the edit token when changing an existing share', async () => {
+      reply(200, updateResponse);
+      await client.updateShare(SHARE_ID, TOKEN, { title: 'Note', markdown: '# Changed' });
+
+      expect(transport.mock.calls[0]?.[0].headers[EDIT_TOKEN_HEADER]).toBe(TOKEN);
+    });
+
+    it('sends the edit token when attaching an image', async () => {
+      reply(201, assetResponse);
+      await client.uploadAsset({
+        shareId: SHARE_ID,
+        editToken: TOKEN,
+        filename: 'a.png',
+        contentType: 'image/png',
+        bytes: new Uint8Array([1, 2, 3, 4]).buffer,
       });
 
-      await client.me();
+      expect(transport.mock.calls[0]?.[0].headers[EDIT_TOKEN_HEADER]).toBe(TOKEN);
+    });
 
-      expect(transport.mock.calls[0]?.[0].headers.Authorization).toBe(`Bearer ${KEY}`);
+    it('sends the edit token when unsharing', async () => {
+      transport.mockResolvedValue({ status: 204, text: '' });
+      await client.deleteShare(SHARE_ID, TOKEN);
+
+      expect(transport.mock.calls[0]?.[0].headers[EDIT_TOKEN_HEADER]).toBe(TOKEN);
     });
 
     it('builds urls from the contract routes, not by hand', async () => {
@@ -74,7 +106,6 @@ describe('ShareApiClient', () => {
     it('does not double a slash when the server url has a trailing one', async () => {
       const trailing = new ShareApiClient(transport, {
         serverUrl: 'https://notes.example.com/',
-        apiKey: KEY,
       });
       reply(201, shareResponse);
       await trailing.createShare({ title: 'Note', markdown: '# Note' });
@@ -93,8 +124,8 @@ describe('ShareApiClient', () => {
     });
 
     it('updates at the share route', async () => {
-      reply(200, { ...shareResponse, updated: true });
-      await client.updateShare(SHARE_ID, { title: 'Note', markdown: '# Changed' });
+      reply(200, updateResponse);
+      await client.updateShare(SHARE_ID, TOKEN, { title: 'Note', markdown: '# Changed' });
 
       expect(transport.mock.calls[0]?.[0].method).toBe('PUT');
       expect(transport.mock.calls[0]?.[0].url).toBe(
@@ -106,6 +137,7 @@ describe('ShareApiClient', () => {
       reply(201, assetResponse);
       await client.uploadAsset({
         shareId: SHARE_ID,
+        editToken: TOKEN,
         filename: 'a.png',
         contentType: 'image/png',
         bytes: new Uint8Array([1, 2, 3, 4]).buffer,
@@ -118,12 +150,17 @@ describe('ShareApiClient', () => {
 
     it('accepts 204 for a delete', async () => {
       transport.mockResolvedValue({ status: 204, text: '' });
-      await expect(client.deleteShare(SHARE_ID)).resolves.toBeUndefined();
+      await expect(client.deleteShare(SHARE_ID, TOKEN)).resolves.toBeUndefined();
     });
   });
 
   describe('responses', () => {
-    it('returns the parsed share', async () => {
+    it('reports the server as ready when it is', async () => {
+      reply(200, readyResponse);
+      await expect(client.ready()).resolves.toEqual(readyResponse);
+    });
+
+    it('returns the parsed share, including its one-time token', async () => {
       reply(201, shareResponse);
       await expect(client.createShare({ title: 'Note', markdown: 'x' })).resolves.toEqual(
         shareResponse,
@@ -134,7 +171,7 @@ describe('ShareApiClient', () => {
       reply(404, { error: { code: 'NOT_FOUND', message: 'No such share' } });
 
       await expect(
-        client.updateShare(SHARE_ID, { title: 'x', markdown: 'y' }),
+        client.updateShare(SHARE_ID, TOKEN, { title: 'x', markdown: 'y' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
@@ -154,11 +191,20 @@ describe('ShareApiClient', () => {
     it('reports BAD_RESPONSE when the url is not a share-note server', async () => {
       transport.mockResolvedValue({ status: 200, text: '<!doctype html><title>Hello</title>' });
 
-      await expect(client.me()).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+      await expect(client.ready()).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
     });
 
     it('reports BAD_RESPONSE for an error body in an unknown shape', async () => {
       transport.mockResolvedValue({ status: 500, text: 'Internal Server Error' });
+
+      await expect(client.createShare({ title: 'x', markdown: 'y' })).rejects.toMatchObject({
+        code: 'BAD_RESPONSE',
+      });
+    });
+
+    it('rejects a create response with no edit token, which would strand the note', async () => {
+      const { editToken: _omitted, ...withoutToken } = shareResponse;
+      reply(201, withoutToken);
 
       await expect(client.createShare({ title: 'x', markdown: 'y' })).rejects.toMatchObject({
         code: 'BAD_RESPONSE',
@@ -175,12 +221,12 @@ describe('ShareApiClient', () => {
 
     it('rejects a delete that answers 200 instead of 204', async () => {
       transport.mockResolvedValue({ status: 200, text: '' });
-      await expect(client.deleteShare(SHARE_ID)).rejects.toBeInstanceOf(ShareApiError);
+      await expect(client.deleteShare(SHARE_ID, TOKEN)).rejects.toBeInstanceOf(ShareApiError);
     });
 
     it('lets a transport failure through as-is', async () => {
       transport.mockRejectedValue(new ShareApiError('NETWORK_ERROR', 'offline'));
-      await expect(client.me()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      await expect(client.ready()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
     });
   });
 });

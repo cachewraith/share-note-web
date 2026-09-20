@@ -3,25 +3,17 @@ import { AppError } from '../../common/app-error';
 import { sha256Hex } from '../../common/hash';
 import { UrlBuilder } from '../../common/url.builder';
 import { testConfig } from '../../../test/fixtures';
-import { type Principal } from '../auth/principal';
+import { EditTokenService } from './edit-token.service';
 import { type ShareRepository } from './share.repository';
 import { SharesService } from './shares.service';
 
-const owner: Principal = {
-  userId: 'owner-1',
-  email: null,
-  userCreatedAt: new Date('2026-01-01'),
-  apiKeyId: 'key-1',
-  apiKeyName: 'obsidian',
-  apiKeyPrefix: 'abcd1234',
-};
-
-const intruder: Principal = { ...owner, userId: 'owner-2' };
+const TOKEN = `snt_${'a'.repeat(43)}`;
+const OTHER_TOKEN = `snt_${'b'.repeat(43)}`;
 
 function shareRecord(overrides: Record<string, unknown> = {}) {
   return {
     id: 'aaaaaaaaaaaaaaaaaaaaa',
-    ownerId: owner.userId,
+    editTokenHash: sha256Hex(TOKEN),
     title: 'Note',
     contentHash: sha256Hex('# Note'),
     createdAt: new Date('2026-01-01'),
@@ -33,10 +25,10 @@ function shareRecord(overrides: Record<string, unknown> = {}) {
 describe('SharesService', () => {
   const repository = {
     create: vi.fn(),
-    findOwned: vi.fn(),
+    findForWrite: vi.fn(),
     findPublic: vi.fn(),
     update: vi.fn(),
-    listByOwner: vi.fn(),
+    setEditTokenHash: vi.fn(),
     deleteReturningStorageKeys: vi.fn(),
   };
   const storage = {
@@ -47,8 +39,10 @@ describe('SharesService', () => {
     isReachable: vi.fn(),
   };
   const config = testConfig();
+  const editTokens = new EditTokenService(repository as unknown as ShareRepository);
   const service = new SharesService(
     repository as unknown as ShareRepository,
+    editTokens,
     new UrlBuilder(config),
     storage,
     config,
@@ -65,13 +59,37 @@ describe('SharesService', () => {
         Promise.resolve(shareRecord({ id: input.id })),
       );
 
-      const result = await service.create(owner, { title: 'Note', markdown: '# Note' });
+      const result = await service.create({ title: 'Note', markdown: '# Note' });
 
       expect(result.url).toBe(`https://notes.example.com/${result.id}`);
       expect(result.contentHash).toBe(sha256Hex('# Note'));
       expect(repository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ ownerId: 'owner-1', markdown: '# Note' }),
+        expect.objectContaining({ markdown: '# Note' }),
       );
+    });
+
+    it('returns an edit token and stores only its digest', async () => {
+      repository.create.mockImplementation((input: { id: string }) =>
+        Promise.resolve(shareRecord({ id: input.id })),
+      );
+
+      const result = await service.create({ title: 'Note', markdown: '# Note' });
+
+      expect(result.editToken).toMatch(/^snt_[A-Za-z0-9_-]{43}$/);
+      const stored = repository.create.mock.calls[0]?.[0] as { editTokenHash: string };
+      expect(stored.editTokenHash).toBe(sha256Hex(result.editToken));
+      expect(stored.editTokenHash).not.toContain(result.editToken.slice(4));
+    });
+
+    it('mints a different token for every share', async () => {
+      repository.create.mockImplementation((input: { id: string }) =>
+        Promise.resolve(shareRecord({ id: input.id })),
+      );
+
+      const first = await service.create({ title: 'Note', markdown: '# Note' });
+      const second = await service.create({ title: 'Note', markdown: '# Note' });
+
+      expect(first.editToken).not.toBe(second.editToken);
     });
 
     it('retries once on an id collision and then succeeds', async () => {
@@ -81,7 +99,7 @@ describe('SharesService', () => {
           Promise.resolve(shareRecord({ id: input.id })),
         );
 
-      await expect(service.create(owner, { title: 'Note', markdown: '# Note' })).resolves.toEqual(
+      await expect(service.create({ title: 'Note', markdown: '# Note' })).resolves.toEqual(
         expect.objectContaining({ contentHash: sha256Hex('# Note') }),
       );
       expect(repository.create).toHaveBeenCalledTimes(2);
@@ -89,7 +107,7 @@ describe('SharesService', () => {
 
     it('propagates a database error that is not a collision', async () => {
       repository.create.mockRejectedValue(new Error('connection refused'));
-      await expect(service.create(owner, { title: 'Note', markdown: 'x' })).rejects.toThrow(
+      await expect(service.create({ title: 'Note', markdown: 'x' })).rejects.toThrow(
         'connection refused',
       );
     });
@@ -97,23 +115,24 @@ describe('SharesService', () => {
     it('refuses markdown over this server configured limit', async () => {
       const small = new SharesService(
         repository as unknown as ShareRepository,
+        editTokens,
         new UrlBuilder(testConfig({ MARKDOWN_MAX_BYTES: '16' })),
         storage,
         testConfig({ MARKDOWN_MAX_BYTES: '16' }),
       );
 
-      await expect(
-        small.create(owner, { title: 'Note', markdown: 'x'.repeat(17) }),
-      ).rejects.toMatchObject({ code: 'PAYLOAD_TOO_LARGE' });
+      await expect(small.create({ title: 'Note', markdown: 'x'.repeat(17) })).rejects.toMatchObject(
+        { code: 'PAYLOAD_TOO_LARGE' },
+      );
       expect(repository.create).not.toHaveBeenCalled();
     });
   });
 
   describe('update', () => {
     it('reports updated:false and writes nothing when the content is unchanged', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
 
-      const result = await service.update(owner, 'aaaaaaaaaaaaaaaaaaaaa', {
+      const result = await service.update('aaaaaaaaaaaaaaaaaaaaa', TOKEN, {
         title: 'Note',
         markdown: '# Note',
       });
@@ -123,10 +142,10 @@ describe('SharesService', () => {
     });
 
     it('writes when only the title changed', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
       repository.update.mockResolvedValue(shareRecord({ title: 'Renamed' }));
 
-      const result = await service.update(owner, 'aaaaaaaaaaaaaaaaaaaaa', {
+      const result = await service.update('aaaaaaaaaaaaaaaaaaaaa', TOKEN, {
         title: 'Renamed',
         markdown: '# Note',
       });
@@ -136,10 +155,10 @@ describe('SharesService', () => {
     });
 
     it('keeps the same id and url across an update', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
       repository.update.mockResolvedValue(shareRecord());
 
-      const result = await service.update(owner, 'aaaaaaaaaaaaaaaaaaaaa', {
+      const result = await service.update('aaaaaaaaaaaaaaaaaaaaa', TOKEN, {
         title: 'Note',
         markdown: '# Changed',
       });
@@ -148,11 +167,29 @@ describe('SharesService', () => {
       expect(result.url).toBe('https://notes.example.com/aaaaaaaaaaaaaaaaaaaaa');
     });
 
-    it("answers NOT_FOUND for another owner's share", async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+    it('answers NOT_FOUND when the edit token does not match', async () => {
+      repository.findForWrite.mockResolvedValue(shareRecord());
 
       await expect(
-        service.update(intruder, 'aaaaaaaaaaaaaaaaaaaaa', { title: 'x', markdown: 'y' }),
+        service.update('aaaaaaaaaaaaaaaaaaaaa', OTHER_TOKEN, { title: 'x', markdown: 'y' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('answers NOT_FOUND when no token is presented at all', async () => {
+      repository.findForWrite.mockResolvedValue(shareRecord());
+
+      await expect(
+        service.update('aaaaaaaaaaaaaaaaaaaaa', undefined, { title: 'x', markdown: 'y' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('answers NOT_FOUND for a share that predates edit tokens', async () => {
+      repository.findForWrite.mockResolvedValue(shareRecord({ editTokenHash: null }));
+
+      await expect(
+        service.update('aaaaaaaaaaaaaaaaaaaaa', TOKEN, { title: 'x', markdown: 'y' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
       expect(repository.update).not.toHaveBeenCalled();
     });
@@ -160,61 +197,44 @@ describe('SharesService', () => {
 
   describe('remove', () => {
     it('deletes the row and then the objects', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
       repository.deleteReturningStorageKeys.mockResolvedValue(['shares/a/b.png']);
 
-      await service.remove(owner, 'aaaaaaaaaaaaaaaaaaaaa');
+      await service.remove('aaaaaaaaaaaaaaaaaaaaa', TOKEN);
 
       expect(repository.deleteReturningStorageKeys).toHaveBeenCalledWith('aaaaaaaaaaaaaaaaaaaaa');
       expect(storage.delete).toHaveBeenCalledWith(['shares/a/b.png']);
     });
 
     it('does not call storage when the share had no attachments', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
       repository.deleteReturningStorageKeys.mockResolvedValue([]);
 
-      await service.remove(owner, 'aaaaaaaaaaaaaaaaaaaaa');
+      await service.remove('aaaaaaaaaaaaaaaaaaaaa', TOKEN);
 
       expect(storage.delete).not.toHaveBeenCalled();
     });
 
     it('stays deleted when the bucket call fails', async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+      repository.findForWrite.mockResolvedValue(shareRecord());
       repository.deleteReturningStorageKeys.mockResolvedValue(['shares/a/b.png']);
       storage.delete.mockRejectedValue(new Error('bucket unreachable'));
 
-      await expect(service.remove(owner, 'aaaaaaaaaaaaaaaaaaaaa')).resolves.toBeUndefined();
+      await expect(service.remove('aaaaaaaaaaaaaaaaaaaaa', TOKEN)).resolves.toBeUndefined();
     });
 
-    it("refuses to delete another owner's share", async () => {
-      repository.findOwned.mockResolvedValue(shareRecord());
+    it('refuses to delete a share whose token the caller does not hold', async () => {
+      repository.findForWrite.mockResolvedValue(shareRecord());
 
-      await expect(service.remove(intruder, 'aaaaaaaaaaaaaaaaaaaaa')).rejects.toMatchObject({
+      await expect(service.remove('aaaaaaaaaaaaaaaaaaaaa', OTHER_TOKEN)).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
       expect(repository.deleteReturningStorageKeys).not.toHaveBeenCalled();
     });
   });
 
-  describe('list', () => {
-    it('returns a cursor only when the page is full', async () => {
-      repository.listByOwner.mockResolvedValue([{ ...shareRecord(), assetCount: 0 }]);
-
-      expect((await service.list(owner, { limit: 1 })).nextCursor).toBe('aaaaaaaaaaaaaaaaaaaaa');
-      expect((await service.list(owner, { limit: 50 })).nextCursor).toBeNull();
-    });
-
-    it('scopes the query to the caller', async () => {
-      repository.listByOwner.mockResolvedValue([]);
-      await service.list(owner, { limit: 50 });
-      expect(repository.listByOwner).toHaveBeenCalledWith(
-        expect.objectContaining({ ownerId: 'owner-1' }),
-      );
-    });
-  });
-
   describe('getPublic', () => {
-    it('returns the note with absolute asset urls and no owner field', async () => {
+    it('returns the note with absolute asset urls and no token of any kind', async () => {
       repository.findPublic.mockResolvedValue({
         ...shareRecord(),
         markdown: '# Note',
