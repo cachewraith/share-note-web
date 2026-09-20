@@ -10,8 +10,8 @@
     "cli": "node dist/cli/main.js",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "prisma generate && tsc --noEmit",
-    "test": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
+    "test": "prisma generate && vitest run --project unit",
+    "test:integration": "prisma generate && vitest run --project integration",
     "prisma": "prisma",
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy"
