@@ -1,7 +1,7 @@
 {
   "id": "self-hosted-note-share",
   "name": "Self-Hosted Note Share",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.5.0",
   "description": "Publish a note to a public link on a server you run yourself.",
   "author": "cachewraith",
