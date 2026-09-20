@@ -1,97 +1,91 @@
-# share-note-web
+# Self-Hosted Note Share
 
-Share a single Obsidian note as a public link. The note renders in any browser
-with syntax highlighting, GFM tables, callouts and its attachments — no Obsidian
-required on the other end.
+Share a single Obsidian note as a public link. The note opens in any browser —
+formatting, tables, callouts, code highlighting and its images intact — and the
+person reading it needs no account, no app and no Obsidian.
 
 ```
 https://notes.example.com/V1StGXR8_Z5jdHi6B-myT
 ```
 
-Self-hosted. No telemetry, no third-party requests, no accounts for readers.
-Unsharing deletes the content.
+The link points at a server you run. Nothing is sent anywhere else, there is no
+telemetry, and unsharing deletes the note from the server for good.
 
-## What is in here
+## What it does
 
-| Path                 | What it is                                                        |
-| -------------------- | ----------------------------------------------------------------- |
-| `apps/api`           | NestJS on Fastify: shares, attachments, API-key auth, rate limits |
-| `apps/web`           | Next.js viewer: server-rendered, sanitized, cached                |
-| `apps/plugin`        | Obsidian plugin: share, update, copy link, unshare                |
-| `packages/contracts` | zod schemas, types and route constants — the API contract         |
-| `packages/config`    | shared tsconfig, ESLint flat config, Prettier config              |
+- **Share the note you are in** with one command, and get the link on your
+  clipboard.
+- **Keep the link stable.** Edit the note, run _Update shared note_, and the
+  same URL serves the new version. Anyone you already sent it to keeps working.
+- **Bring the images along.** Embedded attachments upload with the note and are
+  served from your server, not hotlinked from anywhere.
+- **Take it down.** _Unshare note_ deletes the note and its images. The link
+  stops working immediately.
+- **Works on mobile** as well as desktop.
 
-## Quick start
+## Install
 
-Node 22+, pnpm 11, Docker.
+**From Obsidian** — Settings → Community plugins → Browse → search for
+_Self-Hosted Note Share_ → Install, then Enable.
 
-```bash
-pnpm install
-pnpm dev:up                                       # postgres, redis, minio, migrations
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env.local
+**By hand** — download `main.js`, `manifest.json` and `styles.css` from the
+[latest release](https://github.com/cachewraith/share-note-web/releases/latest)
+and drop them in `<vault>/.obsidian/plugins/self-hosted-note-share/`.
 
-pnpm --filter @share-note/api build
-pnpm --filter @share-note/api cli create-user --email you@example.com
-```
+Obsidian 1.5.0 or newer.
 
-That last command prints an API key once. Put it, and `http://localhost:3001`,
-into the plugin's settings.
+## Setup
 
-```bash
-pnpm --filter @share-note/api dev      # http://localhost:3001  (/docs for OpenAPI)
-pnpm --filter @share-note/web dev      # http://localhost:3000
-pnpm --filter @share-note/plugin dev   # rebuilds main.js on change
-```
+Open **Settings → Self-Hosted Note Share** and fill in the two fields for your
+server: its address, and the key it issued you. Press **Test connection** — it
+tells you straight away whether the server answered and accepted the key.
 
-To try the plugin, symlink `apps/plugin` into a vault:
+Don't have a server yet? [Setting one up](docs/self-hosting.md) is a single
+Docker Compose file on any VPS.
 
-```bash
-ln -s "$PWD/apps/plugin" /path/to/vault/.obsidian/plugins/self-hosted-note-share
-```
+There is one option: **Copy link after sharing**, on by default, which puts the
+URL on your clipboard the moment a note goes up.
 
-Run everything the way CI does:
+## Commands
 
-```bash
-pnpm verify                                   # lint + typecheck + test + build
-pnpm --filter @share-note/api test:integration        # needs the compose stack
-```
+Run these from the command palette, or bind them to hotkeys.
 
-For a real deployment, see [self-hosting](docs/self-hosting.md).
+| Command                | What it does                                         |
+| ---------------------- | ---------------------------------------------------- |
+| **Share note**         | Publishes the current note and copies its link.      |
+| **Update shared note** | Pushes your edits to the link you already shared.    |
+| **Copy share link**    | Puts the note's existing link back on the clipboard. |
+| **Unshare note**       | Deletes the note from the server. Asks first.        |
 
-## How it works
+Once a note is shared, the plugin records `share_id` and `share_url` in its
+frontmatter, so the note itself remembers where it lives.
 
-The plugin reads a note, strips its frontmatter, and `POST`s the title and
-markdown to the API, which stores it under a 21-character CSPRNG slug and
-returns the public URL. Attachments the note embeds are uploaded separately,
-identified by their magic bytes rather than their extension, and stored in
-S3-compatible object storage behind a `StoragePort`. The viewer server-renders
-the note through a unified/remark/rehype pipeline that **sanitizes before it
-highlights**, under a CSP whose `script-src` is nonce-only. Re-sharing `PUT`s to
-the same id, so the URL never changes; unsharing deletes the row and its
-objects.
+## Good to know
 
-Three layers in the API — controller, service, repository/port — with every
-authorization check in the service layer, where it is unit-testable without a
-request object.
+- **Your frontmatter is never published.** Tags, dates and anything else you
+  keep up there stay in the vault. Only the body of the note is uploaded.
+- **Only the images you embed are shown.** An image pasted in as an external
+  URL renders as its alt text — the viewer will not fetch anything from another
+  site on your reader's behalf.
+- **Links to other notes (`[[Wikilinks]]`) render as their name.** Sharing a
+  note shares that note, not everything it points at.
+- **Unsharing is permanent.** There is no trash to restore from.
+- **A link is unguessable, not secret.** Each one carries 126 bits of entropy,
+  so nobody will stumble onto it — but anyone you give it to can pass it on.
 
-## Security
+## Your server
 
-The sharp edges are rendering one person's markdown into another person's
-browser, and making sure a link nobody was given cannot be found. Both are
-covered in the [threat model](docs/architecture.md#threat-model), which maps
-each threat to what answers it and says what is deliberately _not_ defended.
+The plugin is one half of the project. The other half is the server it
+publishes to: an API and a viewer you run yourself, on your own domain, with
+your own storage.
 
-Found something? Please report it privately rather than opening an issue.
-
-## Documentation
-
+- [Setting up a server](docs/self-hosting.md) — Docker Compose, TLS, backups
 - [Architecture and threat model](docs/architecture.md)
-- [API reference and a curl walkthrough](docs/api.md)
-- [Self-hosting](docs/self-hosting.md)
-- [Releasing](docs/releasing.md)
-- [Decisions](docs/decisions/) — why things are the way they are
+- [API reference](docs/api.md)
 - [Roadmap and known limitations](docs/ROADMAP.md)
+
+Found a security problem? Please report it privately rather than opening an
+issue.
 
 ## Licence
 
