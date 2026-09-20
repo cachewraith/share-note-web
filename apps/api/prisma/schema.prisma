@@ -1,8 +1,18 @@
 // Data model for share-note-web.
 //
-// Ids: `User` and `ApiKey` use UUIDs (internal only). `Share` and `Asset` use the
-// 21-character URL-safe public slug — it is the id *and* the capability that
-// grants access, so it is generated from a CSPRNG (see src/common/ids.ts).
+// Ids: `Share` and `Asset` use the 21-character URL-safe public slug — it is the
+// id *and* the capability that grants read access, so it is generated from a
+// CSPRNG (see src/common/ids.ts).
+//
+// The API has no authentication: anyone who can reach it may publish. Changing
+// or deleting an existing share needs `Share.editTokenHash`, because a share's
+// id travels in the link its author hands out and so cannot also be the
+// credential for writing to it.
+//
+// `User` and `ApiKey`, and `Share.ownerId`, are vestigial. Nothing reads or
+// writes them any more; they are dropped one release after this one, so that a
+// rolling deploy never has the old API running against a schema missing the
+// columns it still writes (see docs/releasing.md).
 
 generator client {
   provider     = "prisma-client"
@@ -47,8 +57,13 @@ model ApiKey {
 
 model Share {
   /// Public slug. Unguessable; possession of it is what grants read access.
-  id          String    @id @db.VarChar(21)
-  ownerId     String    @db.Uuid
+  id            String  @id @db.VarChar(21)
+  /// SHA-256 (hex) of the share's edit token. The token is returned once, on
+  /// creation, and never stored. Null on rows created before tokens existed:
+  /// those can be read but not written, and `cli issue-token` mints a new one.
+  editTokenHash String? @db.Char(64)
+  /// Vestigial. See the note at the top of this file.
+  ownerId     String?   @db.Uuid
   title       String    @db.VarChar(300)
   markdown    String
   /// SHA-256 (hex) of `markdown`. Lets an update skip work when nothing changed.
@@ -61,7 +76,7 @@ model Share {
   /// Reserved for expiring links (no UI in v1). Reads honour it already.
   expiresAt   DateTime?
 
-  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner  User?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   assets Asset[]
 
   @@index([ownerId, createdAt(sort: Desc)])

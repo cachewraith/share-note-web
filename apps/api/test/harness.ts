@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { type NestFastifyApplication } from '@nestjs/platform-fastify';
-import { generateApiKey } from '../src/common/ids';
-import { PrismaService } from '../src/infra/prisma/prisma.service';
+import { ROUTES } from '@share-note/contracts';
 
 /**
  * Integration tests run against the services in docker-compose.yml. The URLs
@@ -40,21 +39,25 @@ export function integrationEnv(): NodeJS.ProcessEnv {
   };
 }
 
-/** Creates a user with one API key, directly in the database. */
-export async function seedUser(app: NestFastifyApplication): Promise<{
-  userId: string;
-  key: string;
-}> {
-  const prisma = app.get(PrismaService);
-  const generated = generateApiKey();
-  const user = await prisma.user.create({
-    data: {
-      email: `${randomUUID()}@test.invalid`,
-      apiKeys: { create: { name: 'test', prefix: generated.prefix, keyHash: generated.keyHash } },
-    },
-    select: { id: true },
-  });
-  return { userId: user.id, key: generated.key };
+/**
+ * Blocks until the app's dependencies are actually up.
+ *
+ * `app.init()` resolves before ioredis has finished connecting, and the client
+ * is configured with `enableOfflineQueue: false` so that the rate limiter
+ * decides now rather than eventually — which means a request that arrives
+ * during that window is refused with SERVICE_UNAVAILABLE. In production the
+ * container healthcheck polls `/ready` for exactly this reason; a test that
+ * starts an app and immediately injects has to do the same, rather than rely
+ * on some other setup step happening to take long enough.
+ */
+export async function waitForReady(app: NestFastifyApplication, attempts = 50): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await app.inject({ method: 'GET', url: ROUTES.ready });
+    if (response.statusCode === 200) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const last = await app.inject({ method: 'GET', url: ROUTES.ready });
+  throw new Error(`dependencies never became ready: ${last.body}`);
 }
 
 export const PNG_BYTES = Buffer.concat([

@@ -4,10 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/bootstrap';
 import { pruneAssets } from '../src/cli/commands';
 import { STORAGE_PORT, type StoragePort } from '../src/infra/storage';
-import { checksumFor, integrationEnv, multipartBody, PNG_BYTES, seedUser } from './harness';
+import { EDIT_TOKEN_HEADER } from '@share-note/contracts';
+import { checksumFor, integrationEnv, multipartBody, PNG_BYTES, waitForReady } from './harness';
 
 let app: NestFastifyApplication;
-let key: string;
 let storage: StoragePort;
 
 beforeAll(async () => {
@@ -15,7 +15,7 @@ beforeAll(async () => {
   ({ app } = await createApp());
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
-  ({ key } = await seedUser(app));
+  await waitForReady(app);
   storage = app.get<StoragePort>(STORAGE_PORT);
 }, 60_000);
 
@@ -31,7 +31,7 @@ describe('prune-assets', () => {
       .inject({
         method: 'POST',
         url: ROUTES.shares,
-        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         payload: { title: 'Keep me', markdown: '![[pixel.png]]' },
       })
       .then((response) => response.json<CreateShareResponse>());
@@ -41,7 +41,7 @@ describe('prune-assets', () => {
       .inject({
         method: 'POST',
         url: ROUTES.shareAssets(share.id),
-        headers: { authorization: `Bearer ${key}`, ...body.headers },
+        headers: { [EDIT_TOKEN_HEADER]: share.editToken, ...body.headers },
         payload: body.payload,
       })
       .then((response) => response.json<CreateAssetResponse>());

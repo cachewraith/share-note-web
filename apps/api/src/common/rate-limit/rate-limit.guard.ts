@@ -1,12 +1,10 @@
 import { CanActivate, type ExecutionContext, Inject, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AUTH_HEADER, AUTH_SCHEME } from '@share-note/contracts';
 import { type FastifyReply, type FastifyRequest } from 'fastify';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from '../../config';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { AppError } from '../app-error';
-import { parseApiKey } from '../ids';
 import { RATE_LIMIT_BUCKET, type RateLimitBucket } from './rate-limit.decorator';
 
 /**
@@ -39,7 +37,7 @@ export class RateLimitGuard implements CanActivate {
       this.reflector.getAllAndOverride<RateLimitBucket | undefined>(RATE_LIMIT_BUCKET, [
         context.getHandler(),
         context.getClass(),
-      ]) ?? 'read';
+      ]) ?? 'write';
 
     if (bucket === 'none') return true;
 
@@ -72,8 +70,6 @@ export class RateLimitGuard implements CanActivate {
 
   private limitFor(bucket: Exclude<RateLimitBucket, 'none'>): number {
     switch (bucket) {
-      case 'read':
-        return this.config.rateLimit.readMax;
       case 'write':
         return this.config.rateLimit.writeMax;
       case 'public':
@@ -97,13 +93,15 @@ export class RateLimitGuard implements CanActivate {
   }
 }
 
+/**
+ * Every caller is anonymous — the API has no accounts — so there is nothing to
+ * key on but the address. An edit token would be the wrong choice: it is a
+ * per-share secret, so keying on it would give anyone an unlimited budget by
+ * publishing a new share to get a new token, and it would put a credential
+ * into Redis keys.
+ *
+ * Fastify resolves `ip` from X-Forwarded-For only when TRUST_PROXY is set.
+ */
 function identify(request: FastifyRequest): string {
-  // See ApiKeyGuard for why this reads `raw.headers`.
-  const raw = request.raw.headers[AUTH_HEADER];
-  if (raw?.startsWith(`${AUTH_SCHEME} `)) {
-    const parsed = parseApiKey(raw.slice(AUTH_SCHEME.length + 1).trim());
-    if (parsed) return `k:${parsed.prefix}`;
-  }
-  // Fastify resolves this from X-Forwarded-For only when TRUST_PROXY is set.
   return `ip:${request.ip}`;
 }

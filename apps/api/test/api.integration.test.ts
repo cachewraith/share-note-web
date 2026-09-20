@@ -3,8 +3,7 @@ import {
   type ApiError,
   type CreateAssetResponse,
   type CreateShareResponse,
-  type ListSharesResponse,
-  type MeResponse,
+  EDIT_TOKEN_HEADER,
   type PublicShareResponse,
   type ReadyResponse,
   ROUTES,
@@ -14,16 +13,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/bootstrap';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
 import { STORAGE_PORT, type StoragePort } from '../src/infra/storage';
-import { GIF_BYTES, integrationEnv, multipartBody, PNG_BYTES, seedUser } from './harness';
+import { GIF_BYTES, integrationEnv, multipartBody, PNG_BYTES, waitForReady } from './harness';
 
 let app: NestFastifyApplication;
-let key: string;
-let otherKey: string;
 
 const json = { 'content-type': 'application/json' };
 
-function auth(token = key): Record<string, string> {
-  return { authorization: `Bearer ${token}` };
+/** A token that is well formed but belongs to no share. */
+const WRONG_TOKEN = `snt_${'z'.repeat(43)}`;
+
+function edit(token: string): Record<string, string> {
+  return { [EDIT_TOKEN_HEADER]: token };
 }
 
 beforeAll(async () => {
@@ -31,9 +31,7 @@ beforeAll(async () => {
   ({ app } = await createApp());
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
-
-  ({ key } = await seedUser(app));
-  ({ key: otherKey } = await seedUser(app));
+  await waitForReady(app);
 }, 60_000);
 
 afterAll(async () => {
@@ -42,12 +40,11 @@ afterAll(async () => {
 
 async function createShare(
   body: { title: string; markdown: string } = { title: 'Note', markdown: '# Note' },
-  token = key,
 ): Promise<CreateShareResponse> {
   const response = await app.inject({
     method: 'POST',
     url: ROUTES.shares,
-    headers: { ...auth(token), ...json },
+    headers: json,
     payload: body,
   });
   expect(response.statusCode).toBe(201);
@@ -71,61 +68,58 @@ describe('health', () => {
   });
 });
 
-describe('authentication', () => {
-  it('refuses a request with no key', async () => {
-    const response = await app.inject({ method: 'GET', url: ROUTES.me });
-    expect(response.statusCode).toBe(401);
-    expect(response.json<ApiError>().error.code).toBe('UNAUTHORIZED');
-  });
-
-  it.each([
-    ['a malformed key', 'not-a-key'],
-    ['the right shape but wrong secret', `snw_aaaaaaaa_${'a'.repeat(43)}`],
-    ['an empty bearer token', ''],
-  ])('refuses %s', async (_label, token) => {
+describe('open publishing', () => {
+  it('publishes with no credential of any kind', async () => {
     const response = await app.inject({
-      method: 'GET',
-      url: ROUTES.me,
-      headers: { authorization: `Bearer ${token}` },
+      method: 'POST',
+      url: ROUTES.shares,
+      headers: json,
+      payload: { title: 'Anyone', markdown: '# Anyone' },
     });
-    expect(response.statusCode).toBe(401);
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json<CreateShareResponse>().editToken).toMatch(/^snt_[A-Za-z0-9_-]{43}$/);
   });
 
-  it('refuses a key presented without the Bearer scheme', async () => {
+  it('ignores an Authorization header rather than refusing it', async () => {
     const response = await app.inject({
-      method: 'GET',
-      url: ROUTES.me,
-      headers: { authorization: key },
-    });
-    expect(response.statusCode).toBe(401);
-  });
-
-  it('identifies the caller behind a valid key', async () => {
-    const response = await app.inject({ method: 'GET', url: ROUTES.me, headers: auth() });
-    expect(response.statusCode).toBe(200);
-    expect(response.json<MeResponse>()).toMatchObject({ apiKey: { name: 'test' } });
-  });
-
-  it('never returns the key or its hash', async () => {
-    const response = await app.inject({ method: 'GET', url: ROUTES.me, headers: auth() });
-    expect(response.body).not.toContain(key);
-    expect(response.body).not.toContain('keyHash');
-  });
-
-  it('refuses a revoked key', async () => {
-    const { key: doomed } = await seedUser(app);
-    const prefix = doomed.slice('snw_'.length, 'snw_'.length + 8);
-    await app.get(PrismaService).apiKey.update({
-      where: { prefix },
-      data: { revokedAt: new Date() },
+      method: 'POST',
+      url: ROUTES.shares,
+      headers: { authorization: 'Bearer whatever', ...json },
+      payload: { title: 'Note', markdown: '# Note' },
     });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: ROUTES.me,
-      headers: auth(doomed),
+    expect(response.statusCode).toBe(201);
+  });
+
+  it('gives each share its own token', async () => {
+    const [a, b] = await Promise.all([createShare(), createShare()]);
+    expect(a.editToken).not.toBe(b.editToken);
+  });
+
+  it('never returns a token again after creation', async () => {
+    const share = await createShare();
+
+    const read = await app.inject({ method: 'GET', url: ROUTES.publicShare(share.id) });
+    expect(read.body).not.toContain(share.editToken);
+
+    const updated = await app.inject({
+      method: 'PUT',
+      url: ROUTES.share(share.id),
+      headers: { ...edit(share.editToken), ...json },
+      payload: { title: 'Note', markdown: '# Changed' },
     });
-    expect(response.statusCode).toBe(401);
+    expect(updated.body).not.toContain(share.editToken);
+  });
+
+  it('stores only a digest of the token', async () => {
+    const share = await createShare();
+    const row = await app
+      .get(PrismaService)
+      .share.findUniqueOrThrow({ where: { id: share.id }, select: { editTokenHash: true } });
+
+    expect(row.editTokenHash).not.toBeNull();
+    expect(row.editTokenHash).not.toContain(share.editToken.slice('snt_'.length));
   });
 });
 
@@ -150,7 +144,7 @@ describe('shares', () => {
     const response = await app.inject({
       method: 'PUT',
       url: ROUTES.share(share.id),
-      headers: { ...auth(), ...json },
+      headers: { ...edit(share.editToken), ...json },
       payload: { title: 'Same', markdown: 'body' },
     });
 
@@ -166,7 +160,7 @@ describe('shares', () => {
     const response = await app.inject({
       method: 'PUT',
       url: ROUTES.share(share.id),
-      headers: { ...auth(), ...json },
+      headers: { ...edit(share.editToken), ...json },
       payload: { title: 'Note', markdown: '# Changed' },
     });
 
@@ -175,43 +169,6 @@ describe('shares', () => {
       url: share.url,
       updated: true,
     });
-  });
-
-  it('lists only the caller own shares', async () => {
-    const mine = await createShare({ title: 'Mine', markdown: 'x' });
-    await createShare({ title: 'Theirs', markdown: 'y' }, otherKey);
-
-    const response = await app.inject({
-      method: 'GET',
-      url: `${ROUTES.shares}?limit=200`,
-      headers: auth(),
-    });
-    const listed = response.json<ListSharesResponse>().shares;
-
-    expect(listed.map((share) => share.id)).toContain(mine.id);
-    expect(listed.every((share) => share.title !== 'Theirs')).toBe(true);
-  });
-
-  it('paginates with a cursor', async () => {
-    await Promise.all([createShare(), createShare(), createShare()]);
-
-    const first = await app.inject({
-      method: 'GET',
-      url: `${ROUTES.shares}?limit=2`,
-      headers: auth(),
-    });
-    const firstPage = first.json<ListSharesResponse>();
-    expect(firstPage.shares).toHaveLength(2);
-    expect(firstPage.nextCursor).not.toBeNull();
-
-    const second = await app.inject({
-      method: 'GET',
-      url: `${ROUTES.shares}?limit=2&cursor=${String(firstPage.nextCursor)}`,
-      headers: auth(),
-    });
-    const firstIds = firstPage.shares.map((share) => share.id);
-    const secondIds = second.json<ListSharesResponse>().shares.map((share) => share.id);
-    expect(secondIds.some((id) => firstIds.includes(id))).toBe(false);
   });
 
   it.each([
@@ -224,7 +181,7 @@ describe('shares', () => {
     const response = await app.inject({
       method: 'POST',
       url: ROUTES.shares,
-      headers: { ...auth(), ...json },
+      headers: json,
       payload,
     });
     expect(response.statusCode).toBe(400);
@@ -235,7 +192,7 @@ describe('shares', () => {
     const response = await app.inject({
       method: 'POST',
       url: ROUTES.shares,
-      headers: { ...auth(), ...json },
+      headers: json,
       payload: { title: 'Big', markdown: 'a'.repeat(1_048_577) },
     });
     expect([400, 413]).toContain(response.statusCode);
@@ -245,20 +202,20 @@ describe('shares', () => {
     const response = await app.inject({
       method: 'PUT',
       url: '/v1/shares/../../etc/passwd',
-      headers: { ...auth(), ...json },
+      headers: { ...edit(WRONG_TOKEN), ...json },
       payload: { title: 'x', markdown: 'y' },
     });
     expect(response.statusCode).toBeGreaterThanOrEqual(400);
   });
 });
 
-describe('ownership', () => {
-  it("hides another owner's share behind NOT_FOUND on update", async () => {
+describe('edit tokens', () => {
+  it('refuses an update from someone holding only the public link', async () => {
     const share = await createShare();
     const response = await app.inject({
       method: 'PUT',
       url: ROUTES.share(share.id),
-      headers: { ...auth(otherKey), ...json },
+      headers: json,
       payload: { title: 'hijacked', markdown: 'x' },
     });
 
@@ -266,12 +223,24 @@ describe('ownership', () => {
     expect(response.json<ApiError>().error.code).toBe('NOT_FOUND');
   });
 
-  it("hides another owner's share behind NOT_FOUND on delete", async () => {
+  it("refuses an update presenting another share's token", async () => {
+    const [mine, theirs] = await Promise.all([createShare(), createShare()]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: ROUTES.share(mine.id),
+      headers: { ...edit(theirs.editToken), ...json },
+      payload: { title: 'hijacked', markdown: 'x' },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('refuses a delete from someone holding only the public link', async () => {
     const share = await createShare();
     const response = await app.inject({
       method: 'DELETE',
       url: ROUTES.share(share.id),
-      headers: auth(otherKey),
+      headers: edit(WRONG_TOKEN),
     });
 
     expect(response.statusCode).toBe(404);
@@ -279,30 +248,55 @@ describe('ownership', () => {
     expect(stillThere.statusCode).toBe(200);
   });
 
-  it("refuses to attach to another owner's share", async () => {
+  it('refuses to attach to a share whose token the caller does not hold', async () => {
     const share = await createShare();
     const body = multipartBody('file', 'a.png', PNG_BYTES, 'image/png');
 
     const response = await app.inject({
       method: 'POST',
       url: ROUTES.shareAssets(share.id),
-      headers: { ...auth(otherKey), ...body.headers },
+      headers: { ...edit(WRONG_TOKEN), ...body.headers },
       payload: body.payload,
     });
 
     expect(response.statusCode).toBe(404);
   });
+
+  it.each([
+    ['a malformed token', 'not-a-token'],
+    ['an empty token', ''],
+    ['the right shape but wrong secret', `snt_${'q'.repeat(43)}`],
+  ])('refuses %s', async (_label, token) => {
+    const share = await createShare();
+    const response = await app.inject({
+      method: 'DELETE',
+      url: ROUTES.share(share.id),
+      headers: edit(token),
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('accepts the share own token', async () => {
+    const share = await createShare();
+    const response = await app.inject({
+      method: 'DELETE',
+      url: ROUTES.share(share.id),
+      headers: edit(share.editToken),
+    });
+    expect(response.statusCode).toBe(204);
+  });
 });
 
 describe('public reads', () => {
-  it('serves a share with no key and no owner information', async () => {
+  it('serves a share to anyone, with no token in the body', async () => {
     const share = await createShare({ title: 'Public', markdown: '# Public' });
     const response = await app.inject({ method: 'GET', url: ROUTES.publicShare(share.id) });
 
     expect(response.statusCode).toBe(200);
     expect(response.json<PublicShareResponse>()).toMatchObject({ id: share.id, title: 'Public' });
     expect(response.body).not.toContain('ownerId');
-    expect(response.body).not.toContain('@test.invalid');
+    expect(response.body).not.toContain('editToken');
+    expect(response.body).not.toContain(share.editToken);
   });
 
   it('asks robots not to index a shared note', async () => {
@@ -327,24 +321,23 @@ describe('public reads', () => {
 
 describe('attachments', () => {
   async function upload(
-    shareId: string,
+    share: CreateShareResponse,
     filename: string,
     bytes: Buffer,
     contentType = 'image/png',
-    token = key,
   ) {
     const body = multipartBody('file', filename, bytes, contentType);
     return app.inject({
       method: 'POST',
-      url: ROUTES.shareAssets(shareId),
-      headers: { ...auth(token), ...body.headers },
+      url: ROUTES.shareAssets(share.id),
+      headers: { ...edit(share.editToken), ...body.headers },
       payload: body.payload,
     });
   }
 
   it('stores an image and serves it back byte for byte', async () => {
     const share = await createShare();
-    const created = await upload(share.id, 'pixel.png', PNG_BYTES);
+    const created = await upload(share, 'pixel.png', PNG_BYTES);
     expect(created.statusCode).toBe(201);
 
     const asset = created.json<CreateAssetResponse>();
@@ -359,8 +352,8 @@ describe('attachments', () => {
 
   it('is idempotent for the same bytes under the same name', async () => {
     const share = await createShare();
-    const first = await upload(share.id, 'pixel.png', PNG_BYTES);
-    const second = await upload(share.id, 'pixel.png', PNG_BYTES);
+    const first = await upload(share, 'pixel.png', PNG_BYTES);
+    const second = await upload(share, 'pixel.png', PNG_BYTES);
 
     expect(first.json<CreateAssetResponse>().created).toBe(true);
     expect(second.json<CreateAssetResponse>().created).toBe(false);
@@ -369,8 +362,8 @@ describe('attachments', () => {
 
   it('mints a new id when the same name gets different bytes', async () => {
     const share = await createShare();
-    const first = await upload(share.id, 'pixel.png', PNG_BYTES);
-    const second = await upload(share.id, 'pixel.png', GIF_BYTES, 'image/gif');
+    const first = await upload(share, 'pixel.png', PNG_BYTES);
+    const second = await upload(share, 'pixel.png', GIF_BYTES, 'image/gif');
 
     expect(second.json<CreateAssetResponse>().id).not.toBe(first.json<CreateAssetResponse>().id);
 
@@ -383,14 +376,14 @@ describe('attachments', () => {
 
   it('trusts the magic bytes over the declared type', async () => {
     const share = await createShare();
-    const response = await upload(share.id, 'looks-like.png', GIF_BYTES, 'image/png');
+    const response = await upload(share, 'looks-like.png', GIF_BYTES, 'image/png');
     expect(response.json<CreateAssetResponse>().mime).toBe('image/gif');
   });
 
   it('refuses an svg dressed as a png', async () => {
     const share = await createShare();
     const response = await upload(
-      share.id,
+      share,
       'logo.png',
       Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'),
       'image/png',
@@ -403,7 +396,7 @@ describe('attachments', () => {
   it('refuses html', async () => {
     const share = await createShare();
     const response = await upload(
-      share.id,
+      share,
       'page.png',
       Buffer.from('<html><script>alert(1)</script></html>'),
     );
@@ -412,7 +405,7 @@ describe('attachments', () => {
 
   it('cannot be made to write outside its own share prefix', async () => {
     const share = await createShare();
-    const response = await upload(share.id, '../../escape.png', PNG_BYTES);
+    const response = await upload(share, '../../escape.png', PNG_BYTES);
 
     // The multipart parser already strips the directory part, and the storage
     // key is built from ids rather than the name, so neither layer can be
@@ -431,7 +424,7 @@ describe('attachments', () => {
 
   it('lists its attachments on the public share', async () => {
     const share = await createShare({ title: 'With image', markdown: '![[pixel.png]]' });
-    await upload(share.id, 'pixel.png', PNG_BYTES);
+    await upload(share, 'pixel.png', PNG_BYTES);
 
     const response = await app.inject({ method: 'GET', url: ROUTES.publicShare(share.id) });
     const assets = response.json<PublicShareResponse>().assets;
@@ -444,7 +437,7 @@ describe('attachments', () => {
     const response = await app.inject({
       method: 'POST',
       url: ROUTES.shareAssets(share.id),
-      headers: { ...auth(), ...json },
+      headers: { ...edit(share.editToken), ...json },
       payload: { file: 'nope' },
     });
     expect(response.statusCode).toBe(415);
@@ -459,7 +452,7 @@ describe('unshare', () => {
       await app.inject({
         method: 'POST',
         url: ROUTES.shareAssets(share.id),
-        headers: { ...auth(), ...body.headers },
+        headers: { ...edit(share.editToken), ...body.headers },
         payload: body.payload,
       })
     ).json<CreateAssetResponse>();
@@ -470,7 +463,7 @@ describe('unshare', () => {
     const deleted = await app.inject({
       method: 'DELETE',
       url: ROUTES.share(share.id),
-      headers: auth(),
+      headers: edit(share.editToken),
     });
     expect(deleted.statusCode).toBe(204);
 
@@ -486,11 +479,15 @@ describe('unshare', () => {
 
   it('answers NOT_FOUND when unsharing twice', async () => {
     const share = await createShare();
-    await app.inject({ method: 'DELETE', url: ROUTES.share(share.id), headers: auth() });
+    await app.inject({
+      method: 'DELETE',
+      url: ROUTES.share(share.id),
+      headers: edit(share.editToken),
+    });
     const second = await app.inject({
       method: 'DELETE',
       url: ROUTES.share(share.id),
-      headers: auth(),
+      headers: edit(share.editToken),
     });
     expect(second.statusCode).toBe(404);
   });
@@ -505,7 +502,10 @@ describe('response headers', () => {
   });
 
   it('reports the remaining rate limit budget', async () => {
-    const response = await app.inject({ method: 'GET', url: ROUTES.me, headers: auth() });
+    const response = await app.inject({
+      method: 'GET',
+      url: ROUTES.publicShare('aaaaaaaaaaaaaaaaaaaaa'),
+    });
     expect(response.headers['ratelimit-limit']).toBeDefined();
     expect(response.headers['ratelimit-remaining']).toBeDefined();
   });

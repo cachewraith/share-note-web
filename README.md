@@ -36,9 +36,9 @@ Obsidian 1.5.0 or newer.
 
 ## Setup
 
-Open **Settings → Self-Hosted Note Share** and fill in the two fields for your
-server: its address, and the key it issued you. Press **Test connection** — it
-tells you straight away whether the server answered and accepted the key.
+Open **Settings → Self-Hosted Note Share** and put in your server's address.
+That is the only thing to configure — there is no account and no key. Press
+**Test connection** to check the address answers.
 
 Don't have a server yet? [Setting one up](docs/self-hosting.md) is a single
 Docker Compose file on any VPS.
@@ -57,8 +57,10 @@ Run these from the command palette, or bind them to hotkeys.
 | **Copy share link**    | Puts the note's existing link back on the clipboard. |
 | **Unshare note**       | Deletes the note from the server. Asks first.        |
 
-Once a note is shared, the plugin records `share_id` and `share_url` in its
-frontmatter, so the note itself remembers where it lives.
+Once a note is shared, the plugin records `share_id`, `share_url` and
+`share_token` in its frontmatter, so the note itself remembers where it lives
+and holds the one credential that can change it. None of that frontmatter is
+ever published.
 
 ## Good to know
 
@@ -70,6 +72,10 @@ frontmatter, so the note itself remembers where it lives.
 - **Links to other notes (`[[Wikilinks]]`) render as their name.** Sharing a
   note shares that note, not everything it points at.
 - **Unsharing is permanent.** There is no trash to restore from.
+- **The note is what can edit the share.** Delete the note, or strip its
+  frontmatter, and the published page stays up with no way to change or remove
+  it from Obsidian — the server keeps only a digest of the token and cannot
+  hand it back. Whoever runs the server can mint a new one.
 - **A link is unguessable, not secret.** Each one carries 126 bits of entropy,
   so nobody will stumble onto it — but anyone you give it to can pass it on.
 

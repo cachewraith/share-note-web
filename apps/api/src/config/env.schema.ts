@@ -77,7 +77,6 @@ export const envSchema = z
       .default(LIMITS.assetsPerShareMax),
 
     RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
-    RATE_LIMIT_READ_MAX: z.coerce.number().int().positive().default(300),
     RATE_LIMIT_WRITE_MAX: z.coerce.number().int().positive().default(30),
     /**
      * Shared by every reader: the server-rendered viewer calls the public

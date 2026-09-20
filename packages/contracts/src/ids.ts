@@ -1,10 +1,9 @@
 import { z } from 'zod';
-import { API_KEY_PATTERN, PUBLIC_ID_PATTERN, SHA256_HEX_PATTERN } from './constants';
+import { EDIT_TOKEN_PATTERN, PUBLIC_ID_PATTERN, SHA256_HEX_PATTERN } from './constants';
 
 export {
-  API_KEY_PATTERN,
-  API_KEY_PREFIX_LENGTH,
-  API_KEY_SECRET_LENGTH,
+  EDIT_TOKEN_PATTERN,
+  EDIT_TOKEN_SECRET_LENGTH,
   PUBLIC_ID_ALPHABET,
   PUBLIC_ID_LENGTH,
   PUBLIC_ID_PATTERN,
@@ -21,4 +20,4 @@ export type AssetId = z.infer<typeof AssetIdSchema>;
 
 export const Sha256HexSchema = z.string().regex(SHA256_HEX_PATTERN, 'Invalid sha-256 digest');
 
-export const ApiKeySchema = z.string().regex(API_KEY_PATTERN, 'Invalid API key format');
+export const EditTokenSchema = z.string().regex(EDIT_TOKEN_PATTERN, 'Invalid edit token format');

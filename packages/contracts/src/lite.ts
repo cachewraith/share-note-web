@@ -15,11 +15,9 @@ export type {
   CreateAssetResponse,
   CreateShareRequest,
   CreateShareResponse,
-  ListSharesResponse,
-  MeResponse,
   PublicAsset,
   PublicShareResponse,
-  ShareSummary,
+  ReadyResponse,
   UpdateShareRequest,
   UpdateShareResponse,
 } from './schemas';

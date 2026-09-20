@@ -1,92 +1,50 @@
 import { Logger } from '@nestjs/common';
-import { generateApiKey } from '../common/ids';
-import { AuthRepository } from '../modules/auth/auth.repository';
+import { generateEditToken } from '../common/ids';
 import { AssetRepository } from '../modules/assets/asset.repository';
+import { ShareRepository } from '../modules/shares/share.repository';
 import { STORAGE_PORT, type StoragePort } from '../infra/storage';
 import { type INestApplicationContext } from '@nestjs/common';
 
 /**
- * An object an operator has to read, so it is written for a terminal rather
- * than piped through the logger.
+ * Mints a fresh edit token for an existing share, replacing whatever token it
+ * had.
+ *
+ * Two situations need this. A share created before this release has no token at
+ * all and cannot otherwise be updated or unshared; and an author who lost the
+ * token — deleted the note, or the frontmatter it lived in — would otherwise
+ * have a note published at a link they can no longer take down.
+ *
+ * Issuing a token invalidates the previous one, so running this on a share
+ * whose token is still in a vault will stop that vault from updating it.
  */
-function printKey(key: string, context: { userId: string; keyName: string }): void {
+export async function issueToken(
+  app: INestApplicationContext,
+  options: { shareId: string },
+): Promise<number> {
+  const generated = generateEditToken();
+  const share = await app
+    .get(ShareRepository)
+    .setEditTokenHash(options.shareId, generated.tokenHash);
+
+  if (!share) {
+    process.stderr.write('No such share.\n');
+    return 1;
+  }
+
   process.stdout.write(
     [
       '',
-      '  API key created. It is shown once and cannot be recovered.',
+      '  Edit token issued. It is shown once and cannot be recovered.',
       '',
-      `    user:  ${context.userId}`,
-      `    name:  ${context.keyName}`,
-      `    key:   ${key}`,
+      `    share:  ${share.id}`,
+      `    title:  ${share.title}`,
+      `    token:  ${generated.token}`,
       '',
-      '  Paste it into the Obsidian plugin settings.',
+      '  Any token this share had before is now invalid.',
       '',
       '',
     ].join('\n'),
   );
-}
-
-export async function createUser(
-  app: INestApplicationContext,
-  options: { email: string | null; keyName: string },
-): Promise<number> {
-  const repository = app.get(AuthRepository);
-
-  if (options.email) {
-    const existing = await repository.findUserByEmail(options.email);
-    if (existing) {
-      process.stderr.write(
-        `A user with that email already exists. Use "create-key --email" to add a key to it.\n`,
-      );
-      return 1;
-    }
-  }
-
-  const generated = generateApiKey();
-  const { userId } = await repository.createUserWithKey({
-    email: options.email,
-    keyName: options.keyName,
-    prefix: generated.prefix,
-    keyHash: generated.keyHash,
-  });
-
-  printKey(generated.key, { userId, keyName: options.keyName });
-  return 0;
-}
-
-export async function createKey(
-  app: INestApplicationContext,
-  options: { email: string; keyName: string },
-): Promise<number> {
-  const repository = app.get(AuthRepository);
-  const user = await repository.findUserByEmail(options.email);
-  if (!user) {
-    process.stderr.write('No user with that email.\n');
-    return 1;
-  }
-
-  const generated = generateApiKey();
-  await repository.createKeyForUser({
-    userId: user.id,
-    keyName: options.keyName,
-    prefix: generated.prefix,
-    keyHash: generated.keyHash,
-  });
-
-  printKey(generated.key, { userId: user.id, keyName: options.keyName });
-  return 0;
-}
-
-export async function revokeKey(
-  app: INestApplicationContext,
-  options: { prefix: string },
-): Promise<number> {
-  const revoked = await app.get(AuthRepository).revokeKeyByPrefix(options.prefix, new Date());
-  if (!revoked) {
-    process.stderr.write('No active key with that prefix.\n');
-    return 1;
-  }
-  process.stdout.write(`Revoked key ${options.prefix}.\n`);
   return 0;
 }
 

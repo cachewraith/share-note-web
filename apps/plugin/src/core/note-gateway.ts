@@ -26,7 +26,11 @@ export interface NoteGateway {
   readMarkdown(note: NoteHandle): Promise<string>;
   shareIdOf(note: NoteHandle): string | null;
   shareUrlOf(note: NoteHandle): string | null;
-  writeShareDetails(note: NoteHandle, share: { id: string; url: string }): Promise<void>;
+  shareTokenOf(note: NoteHandle): string | null;
+  writeShareDetails(
+    note: NoteHandle,
+    share: { id: string; url: string; editToken?: string },
+  ): Promise<void>;
   clearShareDetails(note: NoteHandle): Promise<void>;
   /**
    * Turns the references a note makes into things that can be read, using the

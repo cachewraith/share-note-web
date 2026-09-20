@@ -12,8 +12,7 @@ import { sniffImageMimeType } from '../../common/mime';
 import { UrlBuilder } from '../../common/url.builder';
 import { APP_CONFIG, type AppConfig } from '../../config';
 import { STORAGE_PORT, type StoragePort } from '../../infra/storage';
-import { type Principal } from '../auth/principal';
-import { ShareRepository } from '../shares/share.repository';
+import { EditTokenService } from '../shares/edit-token.service';
 import { AssetRepository, type AssetRecord } from './asset.repository';
 import { validateFilename } from './filename';
 import { type UploadedAsset } from './uploaded-asset.decorator';
@@ -28,14 +27,14 @@ export class AssetsService {
 
   constructor(
     private readonly assets: AssetRepository,
-    private readonly shares: ShareRepository,
+    private readonly editTokens: EditTokenService,
     private readonly urls: UrlBuilder,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   /**
-   * Attaches an image to a share the caller owns.
+   * Attaches an image to a share, which needs that share's edit token.
    *
    * Re-uploading the same bytes under the same name is a no-op, which is what
    * lets the plugin skip work when a note's attachments have not changed.
@@ -44,11 +43,11 @@ export class AssetsService {
    * never change meaning.
    */
   async upload(
-    principal: Principal,
     shareId: string,
+    editToken: string | undefined,
     upload: UploadedAsset,
   ): Promise<CreateAssetResponse> {
-    await this.assertOwnsShare(principal, shareId);
+    await this.editTokens.assertWritable(shareId, editToken);
 
     const filename = validateFilename(upload.filename);
     if (!filename) {
@@ -139,15 +138,6 @@ export class AssetsService {
     const object = await this.storage.get(key);
     if (!object) throw AppError.notFound('No such attachment');
     return object.stream;
-  }
-
-  private async assertOwnsShare(principal: Principal, shareId: string): Promise<void> {
-    const share = await this.shares.findOwned(shareId, new Date());
-    // A share that does not exist and one owned by somebody else are the same
-    // answer on purpose (see SharesService.findOwnedOrThrow).
-    if (share?.ownerId !== principal.userId) {
-      throw AppError.notFound('No such share');
-    }
   }
 
   private toPublicAsset(record: AssetRecord, mime: string): PublicAsset {

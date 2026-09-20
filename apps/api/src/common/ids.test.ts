@@ -1,6 +1,6 @@
-import { ApiKeySchema, PUBLIC_ID_ALPHABET, PublicIdSchema } from '@share-note/contracts';
+import { EditTokenSchema, PUBLIC_ID_ALPHABET, PublicIdSchema } from '@share-note/contracts';
 import { describe, expect, it } from 'vitest';
-import { generateApiKey, generatePublicId, parseApiKey } from './ids';
+import { generateEditToken, generatePublicId, hashPresentedEditToken } from './ids';
 import { sha256Hex } from './hash';
 
 describe('generatePublicId', () => {
@@ -32,56 +32,50 @@ describe('generatePublicId', () => {
   });
 });
 
-describe('generateApiKey', () => {
-  it('produces a key the contract accepts', () => {
+describe('generateEditToken', () => {
+  it('produces a token the contract accepts', () => {
     for (let i = 0; i < 50; i += 1) {
-      expect(ApiKeySchema.safeParse(generateApiKey().key).success).toBe(true);
+      expect(EditTokenSchema.safeParse(generateEditToken().token).success).toBe(true);
     }
   });
 
-  it('hashes the whole key, not just the secret', () => {
-    const generated = generateApiKey();
-    expect(generated.keyHash).toBe(sha256Hex(generated.key));
+  it('hashes the whole token', () => {
+    const generated = generateEditToken();
+    expect(generated.tokenHash).toBe(sha256Hex(generated.token));
   });
 
-  it('never returns the secret in a field other than `key`', () => {
-    const generated = generateApiKey();
-    // Not `split('_')`: a base64url secret may itself contain underscores, and
-    // comparing against a fragment of it would make this test flaky.
-    const secret = generated.key.slice(`snw_${generated.prefix}_`.length);
+  it('never leaks the secret into the hash that is persisted', () => {
+    const generated = generateEditToken();
+    const secret = generated.token.slice('snt_'.length);
     expect(secret).toHaveLength(43);
-    expect(generated.prefix).not.toContain(secret);
-    expect(generated.keyHash).not.toContain(secret);
+    expect(generated.tokenHash).not.toContain(secret);
+  });
+
+  it('does not repeat itself', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 500; i += 1) seen.add(generateEditToken().token);
+    expect(seen.size).toBe(500);
   });
 });
 
-describe('parseApiKey', () => {
-  it('round-trips a generated key, including secrets containing _ and -', () => {
-    const generated = generateApiKey();
-    const parsed = parseApiKey(generated.key);
-    expect(parsed).toEqual({ prefix: generated.prefix, keyHash: generated.keyHash });
-  });
-
-  it('round-trips 200 generated keys', () => {
-    for (let i = 0; i < 200; i += 1) {
-      const generated = generateApiKey();
-      expect(parseApiKey(generated.key)?.prefix).toBe(generated.prefix);
-    }
+describe('hashPresentedEditToken', () => {
+  it('agrees with the digest stored at creation', () => {
+    const generated = generateEditToken();
+    expect(hashPresentedEditToken(generated.token)).toBe(generated.tokenHash);
   });
 
   it.each([
+    ['undefined', undefined],
     ['empty', ''],
-    ['wrong scheme', `key_abcd1234_${'a'.repeat(43)}`],
-    ['too few parts', 'snw_abcd1234'],
-    ['too many parts', `snw_abcd1234_${'a'.repeat(43)}_extra`],
-    ['short prefix', `snw_abc_${'a'.repeat(43)}`],
-    ['empty secret', 'snw_abcd1234_'],
-    ['non-alphabet prefix', `snw_abcd12!4_${'a'.repeat(43)}`],
-    ['secret one character short', `snw_abcd1234_${'a'.repeat(42)}`],
-    ['leading whitespace', ` snw_abcd1234_${'a'.repeat(43)}`],
-    ['newline injection', `snw_abcd1234_${'a'.repeat(43)}\n`],
-    ['sql-ish payload', "snw_abcd1234_' OR 1=1 --"],
-  ])('rejects %s', (_label, value) => {
-    expect(parseApiKey(value)).toBeNull();
+    ['wrong scheme', `snw_${'a'.repeat(43)}`],
+    ['no prefix', 'a'.repeat(43)],
+    ['secret one character short', `snt_${'a'.repeat(42)}`],
+    ['secret one character long', `snt_${'a'.repeat(44)}`],
+    ['non-alphabet secret', `snt_${'a'.repeat(42)}!`],
+    ['leading whitespace', ` snt_${'a'.repeat(43)}`],
+    ['newline injection', `snt_${'a'.repeat(43)}\n`],
+    ['sql-ish payload', "snt_' OR 1=1 --"],
+  ])('refuses %s before hashing it', (_label, value) => {
+    expect(hashPresentedEditToken(value)).toBeNull();
   });
 });

@@ -3,7 +3,6 @@ import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CONTROLLER_PATHS } from '@share-note/contracts';
 import { type FastifyReply } from 'fastify';
 import { RateLimit } from '../../common/rate-limit/rate-limit.decorator';
-import { Public } from '../auth/public.decorator';
 import { ApiErrorDto } from '../shares/shares.dto';
 import { AssetsService } from './assets.service';
 import { AssetIdParamDto } from './assets.dto';
@@ -15,7 +14,6 @@ import { contentDisposition } from './filename';
  * second-guessing it — together that is what keeps an image from being
  * interpreted as a document on our own origin.
  */
-@Public()
 @RateLimit('public')
 @Controller(`${CONTROLLER_PATHS.public}/assets`)
 export class PublicAssetsController {

@@ -77,17 +77,22 @@ export const PUBLIC_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${String(PUBLIC_ID_L
 export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 /**
- * API key wire format: `snw_<prefix>_<secret>`. The prefix is stored in clear
- * and indexed so a key can be looked up without scanning; only a hash of the
- * whole key is persisted.
+ * Edit token wire format: `snt_<secret>`, where the secret is 32 CSPRNG bytes
+ * in base64url.
+ *
+ * This server has no accounts and no API keys: anyone who can reach it may
+ * publish. The token is what separates *reading* a share from *changing* it.
+ * A share's id travels in the link its author hands out, so it cannot also be
+ * the credential for replacing or deleting the note behind it; the token is
+ * returned once, when the share is created, and only its hash is persisted.
  */
-export const API_KEY_PREFIX_LENGTH = 8;
-export const API_KEY_SECRET_LENGTH = 43;
-export const API_KEY_PATTERN = new RegExp(
-  `^snw_[A-Za-z0-9_-]{${String(API_KEY_PREFIX_LENGTH)}}_[A-Za-z0-9_-]{${String(
-    API_KEY_SECRET_LENGTH,
-  )}}$`,
+export const EDIT_TOKEN_SECRET_LENGTH = 43;
+export const EDIT_TOKEN_PATTERN = new RegExp(
+  `^snt_[A-Za-z0-9_-]{${String(EDIT_TOKEN_SECRET_LENGTH)}}$`,
 );
+
+/** The header an edit token is presented in. */
+export const EDIT_TOKEN_HEADER = 'x-edit-token';
 
 /* -------------------------------------------------------------- errors --- */
 
@@ -143,8 +148,6 @@ export const ROUTES = {
   ready: '/ready',
   docs: '/docs',
 
-  me: `/${API_VERSION}/me`,
-
   shares: `/${API_VERSION}/shares`,
   share: (id: string) => `/${API_VERSION}/shares/${id}`,
   shareAssets: (id: string) => `/${API_VERSION}/shares/${id}/assets`,
@@ -156,18 +159,11 @@ export const ROUTES = {
 /** Controller-level path segments, for the API's own routing decorators. */
 export const CONTROLLER_PATHS = {
   shares: `${API_VERSION}/shares`,
-  me: `${API_VERSION}/me`,
   public: `${API_VERSION}/public`,
 } as const;
 
-export const AUTH_HEADER = 'authorization';
-export const AUTH_SCHEME = 'Bearer';
-
 /** The multipart field the attachment bytes arrive in. */
 export const ASSET_FILE_FIELD = 'file';
-
-export const LIST_SHARES_DEFAULT_LIMIT = 50;
-export const LIST_SHARES_MAX_LIMIT = 200;
 
 export function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;

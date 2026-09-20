@@ -1,9 +1,8 @@
 export {
   API_VERSION,
   ASSET_FILE_FIELD,
-  AUTH_HEADER,
-  AUTH_SCHEME,
   CONTROLLER_PATHS,
+  EDIT_TOKEN_HEADER,
   joinUrl,
   ROUTES,
 } from './constants';
