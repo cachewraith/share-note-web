@@ -9,8 +9,9 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     environment: 'node',
     passWithNoTests: true,
-    // Shiki's first render loads grammars and themes; on a loaded CI box that
-    // can take a while. Every test after the warm-up is milliseconds.
+    // Runs in every worker, so no individual test pays for Shiki's warm-up.
+    setupFiles: ['./vitest.setup.ts'],
     testTimeout: 30_000,
+    hookTimeout: 180_000,
   },
 });

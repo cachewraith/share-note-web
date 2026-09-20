@@ -140,7 +140,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @share-note/plugin build
+      # Through turbo, not `pnpm --filter ... build`: the plugin's build is a
+      # bare esbuild call, so it needs @share-note/contracts built first and
+      # only turbo knows that from the task graph.
+      - run: pnpm exec turbo run build --filter @share-note/plugin
 
       - name: Publish the release
         env:
@@ -154,12 +157,18 @@ jobs:
             apps/plugin/manifest.json \
             apps/plugin/styles.css
 
-  # The server images. Built for amd64 and arm64 so a small ARM box can run them.
+  # The server images, built on native runners rather than under QEMU.
+  #
+  # Emulated arm64 killed this the first time: `npm install` in the migrate
+  # image died with "qemu: uncaught target signal 4 (Illegal instruction)".
+  # GitHub's arm64 runners are free for public repositories, and building
+  # natively is both reliable and much faster. Each job pushes an untagged
+  # image by digest; the merge job below joins them into one multi-arch tag.
   images:
-    name: Push ${{ matrix.image }} image
+    name: Build ${{ matrix.image.name }} (${{ matrix.platform.arch }})
     needs: tag
     if: needs.tag.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -167,22 +176,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: share-note-api
-            dockerfile: apps/api/Dockerfile
-            target: runtime
-          - image: share-note-api-migrate
-            dockerfile: apps/api/Dockerfile
-            target: migrate
-          - image: share-note-web
-            dockerfile: apps/web/Dockerfile
-            target: runtime
+        image:
+          - { name: share-note-api, dockerfile: apps/api/Dockerfile, target: runtime }
+          - { name: share-note-api-migrate, dockerfile: apps/api/Dockerfile, target: migrate }
+          - { name: share-note-web, dockerfile: apps/web/Dockerfile, target: runtime }
+        platform:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.tag.outputs.version }}
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -191,17 +196,78 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ needs.tag.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          file: ${{ matrix.image.dockerfile }}
+          target: ${{ matrix.image.target }}
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
           provenance: true
           sbom: true
+
+      # The filename is the bare digest; the merge job turns each back into a
+      # full reference. Stripping happens in bash - GitHub expressions have no
+      # parameter expansion.
+      - name: Record the digest
+        run: |
+          digest="${{ steps.build.outputs.digest }}"
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # Joins the per-architecture images into one tag people can pull.
+  manifests:
+    name: Publish ${{ matrix.image }} manifest
+    needs: [tag, images]
+    if: needs.tag.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [share-note-api, share-note-api-migrate, share-note-web]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the multi-arch tags
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          cd /tmp/digests
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Show what was published
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"
