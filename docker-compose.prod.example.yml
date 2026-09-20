@@ -89,7 +89,7 @@ services:
     restart: 'no'
 
   migrate:
-    image: ghcr.io/share-note-web/share-note-api-migrate:0.1.0
+    image: ghcr.io/cachewraith/share-note-api-migrate:0.1.0
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,7 +98,7 @@ services:
     restart: 'no'
 
   api:
-    image: ghcr.io/share-note-web/share-note-api:0.1.0
+    image: ghcr.io/cachewraith/share-note-api:0.1.0
     restart: unless-stopped
     depends_on:
       migrate:
@@ -134,7 +134,7 @@ services:
     #   - '127.0.0.1:3001:3001'
 
   web:
-    image: ghcr.io/share-note-web/share-note-web:0.1.0
+    image: ghcr.io/cachewraith/share-note-web:0.1.0
     restart: unless-stopped
     depends_on:
       api:

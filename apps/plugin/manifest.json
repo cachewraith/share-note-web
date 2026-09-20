@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "minAppVersion": "1.5.0",
   "description": "Share a note as a public link on your own share-note server.",
-  "author": "share-note-web",
-  "authorUrl": "https://github.com/share-note-web/share-note-web",
+  "author": "cachewraith",
+  "authorUrl": "https://github.com/cachewraith/share-note-web",
   "isDesktopOnly": false
 }

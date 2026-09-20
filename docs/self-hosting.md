@@ -17,8 +17,8 @@ Everything is one compose file.
 ## Set it up
 
 ```bash
-curl -O https://raw.githubusercontent.com/share-note-web/share-note-web/main/docker-compose.prod.example.yml
-curl -O https://raw.githubusercontent.com/share-note-web/share-note-web/main/.env.prod.example
+curl -O https://raw.githubusercontent.com/cachewraith/share-note-web/main/docker-compose.prod.example.yml
+curl -O https://raw.githubusercontent.com/cachewraith/share-note-web/main/.env.prod.example
 
 mv docker-compose.prod.example.yml docker-compose.yml
 mv .env.prod.example .env

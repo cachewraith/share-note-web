@@ -76,7 +76,7 @@ export default async function SharePage({ params }: PageProps) {
       </article>
       <footer className="share-footer">
         <p>
-          Shared with <a href="https://github.com/share-note-web/share-note-web">share-note</a>.
+          Shared with <a href="https://github.com/cachewraith/share-note-web">share-note</a>.
         </p>
       </footer>
     </main>

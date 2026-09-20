@@ -19,7 +19,7 @@ export default function LandingPage() {
         here: a link someone sent you will open directly.
       </p>
       <p>
-        <a href="https://github.com/share-note-web/share-note-web">
+        <a href="https://github.com/cachewraith/share-note-web">
           Source, documentation and the Obsidian plugin
         </a>
       </p>
