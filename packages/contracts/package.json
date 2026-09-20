@@ -1,6 +1,6 @@
 {
   "name": "@share-note/contracts",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared zod schemas, types and route constants for the share-note API.",
   "license": "MIT",
   "type": "module",
