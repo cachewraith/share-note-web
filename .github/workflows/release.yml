@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     branches: [main]
+  # Lets a release be retried without an empty commit, for when the version is
+  # right but a job failed. The `tag` job still refuses to act if the version
+  # already has a tag, so this cannot release the same version twice.
+  workflow_dispatch:
 
 concurrency:
   group: release
