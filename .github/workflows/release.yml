@@ -164,17 +164,31 @@ jobs:
       # only turbo knows that from the task graph.
       - run: pnpm exec turbo run build --filter @share-note/plugin
 
+      # Create or update: a re-publish must not fail just because the release
+      # is already there, or half a release could never be completed.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.tag.outputs.version }}
         run: |
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --notes-file <(node scripts/release-notes.mjs "$VERSION") \
-            apps/plugin/main.js \
-            apps/plugin/manifest.json \
-            apps/plugin/styles.css
+          node scripts/release-notes.mjs "$VERSION" > /tmp/notes.md
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION exists; replacing its assets."
+            gh release edit "$VERSION" --title "$VERSION" --notes-file /tmp/notes.md
+            gh release upload "$VERSION" \
+              apps/plugin/main.js \
+              apps/plugin/manifest.json \
+              apps/plugin/styles.css \
+              --clobber
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --notes-file /tmp/notes.md \
+              apps/plugin/main.js \
+              apps/plugin/manifest.json \
+              apps/plugin/styles.css
+          fi
 
   # The server images, built on native runners rather than under QEMU.
   #
