@@ -7,6 +7,31 @@ the plugin's `manifest.json` version.
 The tag has **no `v` prefix**. Obsidian requires the release tag to equal
 `manifest.json`'s version exactly, and `manifest.json` cannot carry a `v`.
 
+## One-time repository setup
+
+The release workflow opens a pull request on your behalf, which GitHub blocks by
+default. Enable it once:
+
+**Settings → Actions → General → Workflow permissions**
+
+- select _Read and write permissions_
+- tick _Allow GitHub Actions to create and approve pull requests_
+
+Or from the CLI:
+
+```bash
+gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow \
+  -f default_workflow_permissions=write \
+  -F can_approve_pull_request_reviews=true
+```
+
+Without it, the `version` job fails with _"GitHub Actions is not permitted to
+create or approve pull requests"_ — after having already pushed the
+`changeset-release/main` branch, which you can open a PR from by hand.
+
+Pushing images to GHCR needs nothing extra: the workflow's `packages: write`
+permission covers it, and the first push creates the package.
+
 ## The loop
 
 1. **You** add a changeset to the PR that changes something:

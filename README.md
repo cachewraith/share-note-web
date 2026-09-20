@@ -27,7 +27,7 @@ Node 22+, pnpm 11, Docker.
 
 ```bash
 pnpm install
-docker compose up -d --wait                       # postgres, redis, minio, migrations
+pnpm dev:up                                       # postgres, redis, minio, migrations
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 

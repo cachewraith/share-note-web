@@ -1,11 +1,16 @@
 # Development stack: Postgres, Redis and MinIO, with the bucket created and the
 # database migrated. Run the apps themselves with `pnpm dev`.
 #
-#   docker compose up -d --wait
+#   pnpm dev:up
+#
+# Not `docker compose up --wait`: that exits 1 as soon as a one-shot service
+# finishes, even successfully, so `minio-init` and `migrate` are started
+# separately. `pnpm dev:up` does both and stops on the first failure.
 #
 # Backing services only, skipping the migration image build:
 #
-#   docker compose up -d --wait postgres redis minio minio-init
+#   docker compose up -d --wait postgres redis minio
+#   docker compose run --rm minio-init
 #
 # Host ports default to the standard ones. If something already listens on them,
 # put overrides in a root .env (POSTGRES_PORT, REDIS_PORT, MINIO_PORT,

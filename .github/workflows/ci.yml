@@ -43,8 +43,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The same compose file developers use, so CI and local agree on versions.
+      # `--wait` covers the long-running services only: it exits 1 when a
+      # one-shot container finishes, even with code 0.
       - name: Start backing services
-        run: docker compose up -d --wait postgres redis minio minio-init
+        run: |
+          docker compose up -d --wait postgres redis minio
+          docker compose run --rm minio-init
 
       - name: Apply migrations
         run: pnpm --filter @share-note/api exec prisma migrate deploy

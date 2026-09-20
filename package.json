@@ -11,6 +11,8 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "dev:up": "docker compose up -d --wait postgres redis minio && docker compose run --rm minio-init && docker compose run --rm migrate",
+    "dev:down": "docker compose down",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

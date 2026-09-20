@@ -193,7 +193,7 @@ is.
 
 ```bash
 pnpm install
-docker compose up -d --wait
+pnpm dev:up
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 pnpm --filter @share-note/api build

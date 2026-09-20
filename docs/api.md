@@ -89,8 +89,7 @@ declared `Content-Type`. SVG is refused: it can carry script.
 Every command below was run against the dev stack. Start it first:
 
 ```bash
-docker compose up -d --wait
-pnpm --filter @share-note/api migrate:dev
+pnpm dev:up
 pnpm --filter @share-note/api build
 pnpm --filter @share-note/api start
 ```
