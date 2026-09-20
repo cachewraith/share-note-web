@@ -15,15 +15,23 @@ const schema = z.object({
   PUBLIC_API_URL: z.url().default('http://localhost:3001'),
   /** This app's own public origin, for canonical and OpenGraph URLs. */
   PUBLIC_WEB_URL: z.url().default('http://localhost:3000'),
-  /** How long a fetched note may be served before it is checked again. */
-  SHARE_REVALIDATE_SECONDS: z.coerce.number().int().nonnegative().default(60),
+  /**
+   * Seconds to cache a note lookup for. 0 — the default — means every page
+   * view asks the API, so unsharing takes effect at once.
+   *
+   * Above 0, Next serves the cached copy stale while it refreshes in the
+   * background, so an unshared note can stay visible for noticeably longer
+   * than this number. Only raise it if you would rather serve a deleted note
+   * for a while than make one small API call per page view.
+   */
+  SHARE_CACHE_SECONDS: z.coerce.number().int().nonnegative().default(0),
 });
 
 export interface WebConfig {
   readonly apiInternalUrl: string;
   readonly publicApiUrl: string;
   readonly publicWebUrl: string;
-  readonly shareRevalidateSeconds: number;
+  readonly shareCacheSeconds: number;
 }
 
 let cached: WebConfig | undefined;
@@ -43,7 +51,7 @@ export function getConfig(): WebConfig {
     apiInternalUrl: result.data.API_INTERNAL_URL.replace(/\/+$/, ''),
     publicApiUrl: result.data.PUBLIC_API_URL.replace(/\/+$/, ''),
     publicWebUrl: result.data.PUBLIC_WEB_URL.replace(/\/+$/, ''),
-    shareRevalidateSeconds: result.data.SHARE_REVALIDATE_SECONDS,
+    shareCacheSeconds: result.data.SHARE_CACHE_SECONDS,
   };
   return cached;
 }

@@ -140,16 +140,16 @@ Every variable is validated at boot; the container refuses to start on a bad
 one and says which. The full list is in `apps/api/.env.example` and
 `apps/web/.env.example`. The ones worth knowing:
 
-| Variable                   | Default  | Why you would change it                                 |
-| -------------------------- | -------- | ------------------------------------------------------- |
-| `MARKDOWN_MAX_BYTES`       | 1048576  | Lower it. It cannot be raised above the protocol limit. |
-| `ASSET_MAX_BYTES`          | 10485760 | Lower it if disk is tight.                              |
-| `ASSETS_PER_SHARE_MAX`     | 50       | Lower it.                                               |
-| `RATE_LIMIT_WRITE_MAX`     | 30/min   | Raise for a busy team, lower for a public server.       |
-| `RATE_LIMIT_PUBLIC_MAX`    | 120/min  | How hard readers may hit a link.                        |
-| `SHARE_REVALIDATE_SECONDS` | 60       | How stale a viewed note may be after an edit.           |
-| `ENABLE_DOCS`              | false    | Serves OpenAPI at `/docs`. Refused in production.       |
-| `TRUST_PROXY`              | false    | Only with a proxy that overwrites `X-Forwarded-For`.    |
+| Variable                | Default  | Why you would change it                                                                                  |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `MARKDOWN_MAX_BYTES`    | 1048576  | Lower it. It cannot be raised above the protocol limit.                                                  |
+| `ASSET_MAX_BYTES`       | 10485760 | Lower it if disk is tight.                                                                               |
+| `ASSETS_PER_SHARE_MAX`  | 50       | Lower it.                                                                                                |
+| `RATE_LIMIT_WRITE_MAX`  | 30/min   | Raise for a busy team, lower for a public server.                                                        |
+| `RATE_LIMIT_PUBLIC_MAX` | 600/min  | Shared by every reader: the viewer calls the API from one address.                                       |
+| `SHARE_CACHE_SECONDS`   | 0        | Above 0 the viewer caches lookups, and keeps serving unshared notes for longer than the number suggests. |
+| `ENABLE_DOCS`           | false    | Serves OpenAPI at `/docs`. Refused in production.                                                        |
+| `TRUST_PROXY`           | false    | Only with a proxy that overwrites `X-Forwarded-For`.                                                     |
 
 ## Using S3 instead of MinIO
 
@@ -176,6 +176,18 @@ curl https://notes-api.example.com/ready    # database, redis and bucket all up
 
 `/ready` answers 503 with a per-dependency breakdown when something is down.
 Both are exempt from rate limiting, so monitoring cannot lock itself out.
+
+## A note on rate limits and the viewer
+
+The viewer renders on the server, so its calls to `/v1/public/shares/:id` all
+come from one address — the `web` container's. The `public` bucket therefore
+bounds **total page views per minute across the whole site**, not per reader.
+`RATE_LIMIT_PUBLIC_MAX` defaults to 600/minute for that reason.
+
+If you want per-reader limiting, do it at the proxy in front of `web`, where
+each reader's own address is visible. The API's public bucket is there to stop
+resource abuse; it is not what makes links unguessable — 126 bits of entropy
+is.
 
 ## Running it locally instead
 

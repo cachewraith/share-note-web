@@ -33,6 +33,11 @@ here is half-built: if it is on this page, no code pretends it exists.
 - **API keys do not expire.** Rotation is `create-key` then `revoke-key`.
 - **No CDN in front of attachments.** Fine for notes; put one there if you serve
   large images at volume.
+- **The public rate limit is shared by every reader.** The viewer renders on the
+  server, so its lookups all come from one address. Per-reader limiting belongs
+  at the proxy in front of the viewer.
+- **The viewer asks the API once per page view.** That is what makes unsharing
+  immediate; `SHARE_CACHE_SECONDS` trades it back for staleness if you need to.
 
 **Product**
 

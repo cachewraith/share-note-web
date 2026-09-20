@@ -88,8 +88,11 @@ sanitizer is the single gate the whole document passes through. Highlighting and
 the copy button run after it, which is why Shiki's inline styles and our own
 `<button>` need no allowance for note content.
 
-Rendered HTML is memoised by content hash, so an edit misses the cache by
-construction and an unchanged note costs nothing.
+The lookup itself is **not** cached: caching it would mean serving a note after
+it was unshared, and Next's `revalidate` is stale-while-revalidate, so the
+window outlives its own TTL. The expensive half — markdown to highlighted HTML —
+is memoised by content hash instead, so an edit misses the cache by construction
+and an unchanged note costs one small database read.
 
 ## Data model
 
@@ -134,6 +137,17 @@ end-to-end encryption is on the roadmap and would change that. Also out of
 scope: an attacker with vault access, and denial of service beyond rate limits.
 
 ## Threats and what answers them
+
+### An unshared note still being served
+
+Deleting the row is immediate, but a cache in front of it would not be. The
+viewer therefore does not cache the lookup, and a regression test pins that
+(`src/lib/api/client.test.ts`). An operator who opts into `SHARE_CACHE_SECONDS`
+is told in the same breath what it costs.
+
+The attachment endpoint _is_ cached hard — one year, immutable — which is safe
+because an asset id is minted per distinct content and the row is deleted with
+the share, so the id stops resolving.
 
 ### A passer-by enumerating shares — OWASP A01
 

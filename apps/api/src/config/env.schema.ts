@@ -79,7 +79,12 @@ export const envSchema = z
     RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
     RATE_LIMIT_READ_MAX: z.coerce.number().int().positive().default(300),
     RATE_LIMIT_WRITE_MAX: z.coerce.number().int().positive().default(30),
-    RATE_LIMIT_PUBLIC_MAX: z.coerce.number().int().positive().default(120),
+    /**
+     * Shared by every reader: the server-rendered viewer calls the public
+     * endpoints from a single address, so this bounds total page views per
+     * window rather than per reader. Per-reader limiting belongs at the proxy.
+     */
+    RATE_LIMIT_PUBLIC_MAX: z.coerce.number().int().positive().default(600),
   })
   .refine((env) => !(env.NODE_ENV === 'production' && env.ENABLE_DOCS), {
     message: 'ENABLE_DOCS must be false when NODE_ENV=production',
