@@ -2,7 +2,10 @@
 # database migrated. Run the apps themselves with `pnpm dev`.
 #
 #   docker compose up -d --wait
-#   pnpm --filter @share-note/api migrate:dev
+#
+# Backing services only, skipping the migration image build:
+#
+#   docker compose up -d --wait postgres redis minio minio-init
 #
 # Host ports default to the standard ones. If something already listens on them,
 # put overrides in a root .env (POSTGRES_PORT, REDIS_PORT, MINIO_PORT,
@@ -71,6 +74,21 @@ services:
         mc mb --ignore-existing local/share-note
         mc anonymous set none local/share-note
         echo "bucket ready"
+    restart: 'no'
+
+  # Applies migrations, then exits. Building it is what makes `docker compose
+  # up` give a schema that matches the checkout; `pnpm --filter @share-note/api
+  # migrate:dev` is the faster loop while changing the schema.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://share_note:share_note@postgres:5432/share_note?schema=public
     restart: 'no'
 
 volumes:

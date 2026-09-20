@@ -8,6 +8,7 @@ import { createKey, createUser, pruneAssets, revokeKey } from './commands';
 
 const USAGE = `
 Usage: pnpm --filter @share-note/api cli <command> [options]
+       node dist/cli/main.js <command> [options]        (inside the container)
 
 Commands:
   create-user   [--email <address>] [--key-name <name>]

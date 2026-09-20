@@ -1,0 +1,156 @@
+# Example self-hosting stack. Copy to docker-compose.yml on the host, review
+# every value, and put the secrets in a .env file next to it.
+#
+#   cp docker-compose.prod.example.yml docker-compose.yml
+#   cp .env.prod.example .env      # then edit it
+#   docker compose up -d
+#
+# Migrations run as a job that must finish before the API starts, rather than
+# inside the API process — see docs/decisions/0014. On an upgrade:
+#
+#   docker compose pull
+#   docker compose run --rm migrate
+#   docker compose up -d
+#
+# This file does not terminate TLS. Put a reverse proxy in front of `web` and
+# `api` (Caddy, nginx, Traefik) and give each a hostname; the API key travels
+# in an Authorization header and must not cross the internet unencrypted.
+
+name: share-note
+
+# Every image is pinned to a release tag rather than `latest`, so a restart
+# cannot silently change the version you are running. Bump all four together.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-share_note}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published: only the API needs to reach it.
+    expose:
+      - '5432'
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    expose:
+      - '6379'
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    expose:
+      - '9000'
+    # Drop this service entirely if you use S3, R2, Garage or another gateway;
+    # point S3_ENDPOINT at it instead.
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing local/${S3_BUCKET:-share-note}
+        mc anonymous set none local/${S3_BUCKET:-share-note}
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
+    restart: 'no'
+
+  migrate:
+    image: ghcr.io/share-note-web/share-note-api-migrate:0.1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-share_note}?schema=public
+    restart: 'no'
+
+  api:
+    image: ghcr.io/share-note-web/share-note-api:0.1.0
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:?set PUBLIC_WEB_URL}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:?set PUBLIC_API_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-share_note}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-share-note}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: 'true'
+      # Refused in production anyway; stated here so it is not a surprise.
+      ENABLE_DOCS: 'false'
+      # The migrate job above owns the schema.
+      RUN_MIGRATIONS_ON_START: 'false'
+      # Only with a proxy that overwrites X-Forwarded-For. Rate limiting keys
+      # on the client IP, and a spoofable header would make it useless.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - '3001'
+    # Publish only behind a reverse proxy that terminates TLS:
+    # ports:
+    #   - '127.0.0.1:3001:3001'
+
+  web:
+    image: ghcr.io/share-note-web/share-note-web:0.1.0
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      API_INTERNAL_URL: http://api:3001
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL}
+      SHARE_REVALIDATE_SECONDS: ${SHARE_REVALIDATE_SECONDS:-60}
+    expose:
+      - '3000'
+    # ports:
+    #   - '127.0.0.1:3000:3000'
+
+volumes:
+  postgres-data:
+  minio-data:

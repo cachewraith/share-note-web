@@ -2,10 +2,13 @@
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "access": "restricted",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "fixed": [["@share-note/api", "@share-note/web", "@share-note/plugin", "@share-note/contracts"]],
   "linked": [],
-  "ignore": ["@share-note/config"]
+  "ignore": ["@share-note/config"],
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  }
 }
