@@ -115,10 +115,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-share_note}?schema=public
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # R2 wants the literal "auto"; AWS wants the bucket's real region.
+      S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-share-note}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-      S3_FORCE_PATH_STYLE: 'true'
+      # false for AWS S3 itself; true for MinIO, R2, Garage and most gateways.
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       # Refused in production anyway; stated here so it is not a surprise.
       ENABLE_DOCS: 'false'
       # The migrate job above owns the schema.

@@ -153,19 +153,43 @@ one and says which. The full list is in `apps/api/.env.example` and
 
 ## Using S3 instead of MinIO
 
-Delete the `minio` and `minio-init` services, and point the API at your bucket:
+Delete the `minio` and `minio-init` services, the `minio` entry under the API's
+`depends_on`, and the `minio-data` volume. Then point the API at your bucket:
 
 ```bash
 S3_ENDPOINT=https://s3.eu-west-1.amazonaws.com
+S3_REGION=eu-west-1
 S3_BUCKET=my-share-note
 S3_ACCESS_KEY_ID=...
 S3_SECRET_ACCESS_KEY=...
+S3_FORCE_PATH_STYLE=false
 ```
 
 Set `S3_FORCE_PATH_STYLE=false` for AWS itself; leave it `true` for MinIO,
 Garage and most self-hosted gateways. **Keep the bucket private** — attachments
 are served through the API, which is what applies the correct `Content-Type` and
 `nosniff`. A public bucket would bypass that.
+
+The bucket is not created for you. Only the bundled `minio-init` job does that;
+with an external provider, create it yourself before the first upload.
+
+### Cloudflare R2
+
+```bash
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+S3_REGION=auto
+S3_BUCKET=share-note
+S3_FORCE_PATH_STYLE=true
+```
+
+The endpoint is account-scoped and carries no bucket name; R2 has no regions,
+so its SigV4 region is the literal string `auto`. Give the API token
+**Object Read & Write** on that one bucket, not account-wide access.
+
+If you enabled R2's public `https://pub-<hash>.r2.dev` URL, turn it off. Nothing
+in this project uses it, and it serves your attachments around the API — which
+is what sets `Content-Type` and `nosniff`, and what enforces that an attachment
+is only readable through the share it belongs to.
 
 ## Health
 
