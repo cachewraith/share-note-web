@@ -24,6 +24,10 @@ export default defineConfig({
           name: 'unit',
           environment: 'node',
           include: ['src/**/*.test.ts'],
+          // `pnpm verify` runs every package's tasks at once; a few of these
+          // hash thousands of ids and are slow when the box is busy. Generous
+          // here so a loaded machine does not look like a broken build.
+          testTimeout: 30_000,
         },
       },
       {

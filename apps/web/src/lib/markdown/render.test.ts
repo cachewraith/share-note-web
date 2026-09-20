@@ -1,5 +1,5 @@
 import type { PublicAsset } from '@share-note/contracts';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { renderMarkdown, summarise } from './render';
 
 const asset = (filename: string): PublicAsset => ({
@@ -13,6 +13,15 @@ const asset = (filename: string): PublicAsset => ({
 
 const render = (markdown: string, assets: readonly PublicAsset[] = []) =>
   renderMarkdown({ markdown, assets });
+
+/**
+ * The first render builds Shiki's highlighter, which loads its themes and
+ * grammars and takes seconds. Paying it here keeps every other test's timing
+ * honest — and is the same warm-up the server pays once per process.
+ */
+beforeAll(async () => {
+  await render('```ts\nconst warm = true;\n```\n');
+}, 120_000);
 
 describe('markdown', () => {
   it('renders headings, emphasis and lists', async () => {

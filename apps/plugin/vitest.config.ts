@@ -6,9 +6,26 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   test: {
-    // Only `src/core` is unit-tested: it is the part with no Obsidian imports.
-    include: ['src/core/**/*.test.ts'],
     environment: 'node',
-    passWithNoTests: true,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          // Only `src/core` is unit-tested: it is the part with no Obsidian
+          // imports, and the part with the decisions in it.
+          include: ['src/core/**/*.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['test/**/*.integration.test.ts'],
+          fileParallelism: false,
+          testTimeout: 30_000,
+        },
+      },
+    ],
   },
 });

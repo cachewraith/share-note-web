@@ -9,5 +9,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "esbuild.config.mjs", "vitest.config.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "esbuild.config.mjs", "vitest.config.ts"]
 }

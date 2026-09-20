@@ -28,6 +28,13 @@ this list, no code pretends it exists.
   put one there if you serve large images at volume.
 - **List endpoint is cursor-paginated but unsorted beyond `createdAt desc`.**
   No filtering or search.
+- **The viewer's first render is slow.** Shiki loads its grammars and themes on
+  the first note a process renders, which takes a few seconds; every render
+  after that is milliseconds. Pre-warm the process if cold starts matter.
+- **Attachments are addressed by filename within a share.** Two files with the
+  same basename in different vault folders collide, and the later upload wins.
+- **The plugin does not transclude other notes.** `![[Some Note]]` renders as
+  its name.
 
 ## Toolchain follow-ups
 

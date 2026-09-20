@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { AssetIdSchema, Sha256HexSchema, ShareIdSchema } from './ids';
-import { ALLOWED_IMAGE_MIME_TYPES, LIMITS, utf8ByteLength } from './limits';
+import {
+  ALLOWED_IMAGE_MIME_TYPES,
+  LIST_SHARES_DEFAULT_LIMIT,
+  LIST_SHARES_MAX_LIMIT,
+  LIMITS,
+  utf8ByteLength,
+} from './constants';
 
 const MarkdownSchema = z
   .string()
@@ -67,8 +73,7 @@ export const ShareSummarySchema = ShareRefSchema.extend({
 });
 export type ShareSummary = z.infer<typeof ShareSummarySchema>;
 
-export const LIST_SHARES_DEFAULT_LIMIT = 50;
-export const LIST_SHARES_MAX_LIMIT = 200;
+export { LIST_SHARES_DEFAULT_LIMIT, LIST_SHARES_MAX_LIMIT } from './constants';
 
 export const ListSharesQuerySchema = z.object({
   limit: z.coerce
