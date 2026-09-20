@@ -1,10 +1,10 @@
 {
-  "id": "share-note-web",
-  "name": "Share note",
+  "id": "self-hosted-note-share",
+  "name": "Self-Hosted Note Share",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Share a note as a public link on your own share-note server.",
+  "description": "Publish a note to a public link on a server you run yourself.",
   "author": "cachewraith",
-  "authorUrl": "https://github.com/cachewraith/share-note-web",
+  "authorUrl": "https://github.com/cachewraith",
   "isDesktopOnly": false
 }

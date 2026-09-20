@@ -47,7 +47,7 @@ pnpm --filter @share-note/plugin dev   # rebuilds main.js on change
 To try the plugin, symlink `apps/plugin` into a vault:
 
 ```bash
-ln -s "$PWD/apps/plugin" /path/to/vault/.obsidian/plugins/share-note-web
+ln -s "$PWD/apps/plugin" /path/to/vault/.obsidian/plugins/self-hosted-note-share
 ```
 
 Run everything the way CI does:
@@ -95,4 +95,4 @@ Found something? Please report it privately rather than opening an issue.
 
 ## Licence
 
-MIT.
+[MIT](LICENSE).

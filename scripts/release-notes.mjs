@@ -42,7 +42,7 @@ const notes = [
   '### Installing the plugin',
   '',
   'In Obsidian, put `main.js`, `manifest.json` and `styles.css` in',
-  '`<vault>/.obsidian/plugins/share-note-web/`, then enable it in',
+  '`<vault>/.obsidian/plugins/self-hosted-note-share/`, then enable it in',
   'Settings → Community plugins.',
   '',
   '### Server images',
