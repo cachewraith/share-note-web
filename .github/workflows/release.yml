@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
   # Lets a release be retried without an empty commit, for when the version is
-  # right but a job failed. The `tag` job still refuses to act if the version
-  # already has a tag, so this cannot release the same version twice.
+  # right but a job failed.
   workflow_dispatch:
+    inputs:
+      republish:
+        description: 'Re-publish artifacts for the current version, even though it is already tagged'
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -58,6 +62,10 @@ jobs:
   # Decides whether main is sitting on a version that has never been tagged,
   # which is true exactly once per merged "Version Packages" PR. Everything
   # below keys off this, so an ordinary commit to main does nothing.
+  #
+  # Dispatching with `republish` re-runs the artifact jobs for a version that is
+  # already tagged, for when a release half-completed. It never moves the tag: a
+  # published tag has to keep meaning the same commit.
   tag:
     name: Tag the release
     runs-on: ubuntu-latest
@@ -85,9 +93,16 @@ jobs:
           fi
 
           if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
-            echo "Tag $version already exists; nothing to do."
-            echo "release=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.republish }}" = "true" ]; then
+              echo "Tag $version exists; re-publishing its artifacts."
+              echo "tagged=true" >> "$GITHUB_OUTPUT"
+              echo "release=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Tag $version already exists; nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+            fi
           else
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -113,7 +128,7 @@ jobs:
           [ "$fail" -eq 0 ] || { echo "Run pnpm sync-plugin-manifest." >&2; exit 1; }
 
       - name: Create the tag
-        if: steps.check.outputs.release == 'true'
+        if: steps.check.outputs.release == 'true' && steps.check.outputs.tagged != 'true'
         env:
           VERSION: ${{ steps.check.outputs.version }}
         run: |
@@ -225,7 +240,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          # Double dash on purpose: `digest-share-note-api-*` would also match
+          # the `share-note-api-migrate` artifacts, and the manifest job would
+          # try to join two different images into one tag.
+          name: digest-${{ matrix.image.name }}--${{ matrix.platform.arch }}
           path: /tmp/digests/*
           retention-days: 1
           if-no-files-found: error
@@ -247,7 +265,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: digest-${{ matrix.image }}-*
+          pattern: digest-${{ matrix.image }}--*
           path: /tmp/digests
           merge-multiple: true
 

@@ -107,6 +107,22 @@ during the window between `docker compose run --rm migrate` and
   drop it in _n+1_.
 - Changing a type: add the new column, backfill, switch, drop later.
 
+## When a release half-completes
+
+A release publishes several things, and one of them can fail on its own. The
+tag is created first and is never moved afterwards — a published tag has to keep
+meaning the same commit — so recovery is to re-publish the artifacts for it:
+
+**Actions → Release → Run workflow → tick _Re-publish artifacts_.**
+
+That reruns the plugin and image jobs against the existing tag. It is safe to
+run more than once: the images are content-addressed and the release assets are
+replaced.
+
+If the failure was in the workflow itself, push the fix to `main` first, then
+dispatch. The jobs check out the _tag_, so a workflow fix on `main` takes effect
+while the released code stays exactly what was tagged.
+
 ## Doing a release by hand
 
 Only if CI is unavailable.
